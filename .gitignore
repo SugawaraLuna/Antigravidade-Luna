@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.mp3
+*.jpg
+*.png
+temp_*
+ShaderCache/
+BigFile_PC.*
+GraphicOptions.JSON
+WindowInfo.JSON
+.vscode/
+.idea/

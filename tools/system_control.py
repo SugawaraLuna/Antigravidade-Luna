@@ -4,7 +4,12 @@ import subprocess
 import webbrowser
 import urllib.parse
 
-user32 = ctypes.windll.user32
+user32 = getattr(ctypes, "windll", None)
+if user32:
+    try:
+        user32 = user32.user32
+    except Exception:
+        user32 = None
 
 # Códigos de Teclas Virtuais do Windows
 VK_VOLUME_MUTE = 0xAD
@@ -16,9 +21,13 @@ VK_MEDIA_PLAY_PAUSE = 0xB3
 VK_LWIN = 0x5B
 
 def _press_key(vk_code):
-    user32.keybd_event(vk_code, 0, 0, 0)
-    time.sleep(0.04)
-    user32.keybd_event(vk_code, 0, 2, 0)
+    if user32:
+        try:
+            user32.keybd_event(vk_code, 0, 0, 0)
+            time.sleep(0.04)
+            user32.keybd_event(vk_code, 0, 2, 0)
+        except Exception:
+            pass
 
 is_ducked = False
 
@@ -78,21 +87,31 @@ def control_windows(action: str) -> str:
     """Controla janelas e o desktop: minimizar tudo, mostrar area de trabalho."""
     act = action.lower().strip()
     if any(w in act for w in ["minimizar", "desktop", "area de trabalho", "limpar tela"]):
-        # Win + D
-        user32.keybd_event(VK_LWIN, 0, 0, 0)
-        user32.keybd_event(0x44, 0, 0, 0) # 'D'
-        time.sleep(0.05)
-        user32.keybd_event(0x44, 0, 2, 0)
-        user32.keybd_event(VK_LWIN, 0, 2, 0)
-        return "Todas as janelas foram minimizadas, mostrando a Área de Trabalho."
+        if user32:
+            try:
+                # Win + D
+                user32.keybd_event(VK_LWIN, 0, 0, 0)
+                user32.keybd_event(0x44, 0, 0, 0) # 'D'
+                time.sleep(0.05)
+                user32.keybd_event(0x44, 0, 2, 0)
+                user32.keybd_event(VK_LWIN, 0, 2, 0)
+                return "Todas as janelas foram minimizadas, mostrando a Área de Trabalho."
+            except Exception as e:
+                return f"Falha ao controlar janelas: {e}"
+        return "Comando de controle de janelas indisponível em servidor em nuvem."
     return "Ação de janela desconhecida."
 
 def system_power(action: str, delay_minutes: int = 0) -> str:
     """Ações de energia e segurança: bloquear computador ou agendar desligamento."""
     act = action.lower().strip()
     if "bloque" in act or "lock" in act or "tranc" in act:
-        user32.LockWorkStation()
-        return "Computador bloqueado com sucesso."
+        if user32 and hasattr(user32, "LockWorkStation"):
+            try:
+                user32.LockWorkStation()
+                return "Computador bloqueado com sucesso."
+            except Exception as e:
+                return f"Falha ao bloquear estação: {e}"
+        return "Bloqueio de tela indisponível em servidor em nuvem."
     elif "deslig" in act or "shutdown" in act:
         seconds = max(0, delay_minutes * 60)
         subprocess.Popen(f"shutdown /s /t {seconds}", shell=True)

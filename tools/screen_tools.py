@@ -1,5 +1,7 @@
 import io
 import os
+import sys
+import shutil
 import base64
 import subprocess
 from PIL import Image
@@ -11,6 +13,9 @@ def capture_screen_pil() -> tuple[Optional[Image.Image], str]:
     Captura a tela do computador do usuário e retorna:
     (PIL.Image, status_message)
     """
+    if sys.platform != "win32" and not os.getenv("DISPLAY"):
+        return None, "Captura de tela indisponível em servidor em nuvem (headless)."
+
     # Método 1: PIL ImageGrab (rápido quando em sessão desktop interativa)
     try:
         from PIL import ImageGrab
@@ -21,7 +26,11 @@ def capture_screen_pil() -> tuple[Optional[Image.Image], str]:
     except Exception:
         pass
 
-    # Método 2: Fallback via PowerShell .NET
+    # Método 2: Fallback via PowerShell .NET (apenas Windows)
+    ps_bin = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps_bin:
+        return None, "Captura de tela indisponível sem PowerShell ou interface gráfica."
+
     try:
         temp_file = os.path.abspath("temp_screen.jpg")
         ps_script = (

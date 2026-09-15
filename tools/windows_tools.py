@@ -5,11 +5,30 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import subprocess
+import shutil
 import psutil
 import time
 import unicodedata
 import difflib
 import re
+
+# Compatibilidade multiplataforma para os.startfile
+def _safe_startfile(target):
+    if hasattr(os, "startfile"):
+        try:
+            os.startfile(target)
+        except Exception:
+            pass
+    else:
+        try:
+            xdg = shutil.which("xdg-open")
+            if xdg:
+                subprocess.Popen([xdg, target])
+        except Exception:
+            pass
+
+if not hasattr(os, "startfile"):
+    os.startfile = _safe_startfile
 
 STOP_WORDS = {'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'nos', 'nas', 'um', 'uma', 'o', 'a', 'os', 'as', 'e', 'para', 'pra', 'pasta', 'arquivo'}
 
@@ -254,8 +273,11 @@ def maximize_app_window(app_name: str) -> str:
             [WinAPI]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
         }
         """
-        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_steam], capture_output=True, text=True)
-        return "A Steam foi restaurada do segundo plano e maximizada na tela principal."
+        ps_bin = shutil.which("powershell") or shutil.which("pwsh")
+        if ps_bin:
+            subprocess.run([ps_bin, "-NoProfile", "-NonInteractive", "-Command", ps_steam], capture_output=True, text=True)
+            return "A Steam foi restaurada do segundo plano e maximizada na tela principal."
+        return "Controle de janelas da Steam indisponível em ambiente sem interface gráfica."
 
     # 2. Caso especial Discord
     elif "discord" in app_lower:
@@ -289,11 +311,13 @@ def maximize_app_window(app_name: str) -> str:
         Write-Output "NOT_FOUND"
     }}
     """
-    proc = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_generic], capture_output=True, text=True)
-    if "MAXIMIZED" in proc.stdout:
-        return f"A janela do aplicativo {app_name} foi restaurada e maximizada na tela principal."
-        
-    return f"Não encontrei uma janela ativa de {app_name} em segundo plano."
+    ps_bin = shutil.which("powershell") or shutil.which("pwsh")
+    if ps_bin:
+        proc = subprocess.run([ps_bin, "-NoProfile", "-NonInteractive", "-Command", ps_generic], capture_output=True, text=True)
+        if "MAXIMIZED" in proc.stdout:
+            return f"A janela do aplicativo {app_name} foi restaurada e maximizada na tela principal."
+        return f"Não encontrei uma janela ativa de {app_name} em segundo plano."
+    return f"Controle de janelas para {app_name} indisponível neste ambiente."
 
 def open_application(app_name: str) -> str:
     """Abre aplicativos do Windows (Chrome, Spotify, etc.) ou restaura/maximiza se ja estiver aberto."""
@@ -403,18 +427,31 @@ def get_system_status() -> str:
     )
 
 def run_powershell(command: str) -> str:
-    """Executa um comando no PowerShell do Windows com raciocínio estruturado e retorna a saída."""
-    # Lista de comandos restritos/destrutivos que exigem cuidado
-    destructive_keywords = ["format-volume", "drop-database", "diskpart"]
+    """Executa um comando no PowerShell do Windows (ou shell bash equivalente no Linux) com raciocínio estruturado e retorna a saída."""
+    destructive_keywords = ["format-volume", "drop-database", "diskpart", "rm -rf /", "mkfs"]
     cmd_lower = command.lower()
     for kw in destructive_keywords:
         if kw in cmd_lower:
             return f"Aviso de segurança: O comando contém a ação potencialmente perigosa '{kw}'. Confirme explicitamente com o Gabriel antes de executar."
 
-    print(f"\n⚡ [PowerShell - Raciocínio Estruturado]: {command}")
+    # Determinar executável de shell disponível
+    ps_bin = shutil.which("powershell") or shutil.which("pwsh")
+    if ps_bin:
+        exec_cmd = [ps_bin, "-NoProfile", "-NonInteractive", "-Command", command]
+        shell_name = "PowerShell"
+    else:
+        # Fallback para ambientes Linux / Cloud (Railway, etc.)
+        sh_bin = shutil.which("bash") or shutil.which("sh")
+        if sh_bin:
+            exec_cmd = [sh_bin, "-c", command]
+            shell_name = "Bash/Linux"
+        else:
+            return "Nenhum interpretador de comando (PowerShell ou Bash) disponível no ambiente."
+
+    print(f"\n⚡ [{shell_name} - Raciocínio Estruturado]: {command}")
     try:
         proc = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+            exec_cmd,
             capture_output=True,
             text=True,
             timeout=30,
@@ -425,11 +462,11 @@ def run_powershell(command: str) -> str:
         stderr = proc.stderr.strip() if proc.stderr else ""
         
         if proc.returncode != 0 and stderr:
-            print(f"[-] Erro retornado pelo PowerShell: {stderr[:200]}")
-            return f"Erro na execução (código {proc.returncode}): {stderr[:600]}"
+            print(f"[-] Erro retornado pelo {shell_name}: {stderr[:200]}")
+            return f"Erro na execução ({shell_name}, código {proc.returncode}): {stderr[:600]}"
             
         if not stdout:
-            return "Comando executado com sucesso no PowerShell (sem saída textual retornada)."
+            return f"Comando executado com sucesso no {shell_name} (sem saída textual retornada)."
             
         if len(stdout) > 1200:
             stdout = stdout[:1200] + "\n... [saída resumida]"
@@ -437,9 +474,9 @@ def run_powershell(command: str) -> str:
         print(f"[*] Saída obtida ({len(stdout)} chars): {stdout[:100]}...")
         return stdout
     except subprocess.TimeoutExpired:
-        return "O comando PowerShell demorou mais de 30 segundos e foi interrompido por timeout."
+        return f"O comando {shell_name} demorou mais de 30 segundos e foi interrompido por timeout."
     except Exception as e:
-        return f"Falha ao executar PowerShell: {str(e)}"
+        return f"Falha ao executar {shell_name}: {str(e)}"
 
 def get_friendly_location(path: str) -> str:
     """Retorna uma descrição amigável do local para a IA falar naturalmente."""
@@ -703,9 +740,13 @@ def check_crash_logs(game_or_app_name: str = "") -> str:
     }
     
     found_crashes = []
+    ps_bin = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps_bin:
+        return "Verificação de logs de crash do Windows indisponível neste ambiente (Linux/Nuvem)."
+
     try:
         proc = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd],
+            [ps_bin, "-NoProfile", "-NonInteractive", "-Command", cmd],
             capture_output=True,
             text=True,
             timeout=10,

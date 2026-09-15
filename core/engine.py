@@ -28,10 +28,10 @@ from tools.memory_manager import get_memory_context_string, remember_user_fact
 API_KEY = os.getenv("GEMINI_API_KEY")
 PRIMARY_MODEL = "gemini-3.5-flash-lite"
 FALLBACK_MODELS = [
-    "gemini-flash-lite-latest",
-    "gemini-3.1-flash-lite-preview",
+    "gemini-3.6-flash",
     "gemini-flash-latest",
-    "gemini-3.1-flash-lite"
+    "gemini-3.1-flash-lite-preview",
+    "gemini-flash-lite-latest"
 ]
 
 TOOLS_SCHEMA = [{
@@ -339,6 +339,9 @@ class AntigravityExecutionEngine:
         return res, img_pil
 
     def _send_to_gemini(self, contents: list) -> dict:
+        if not self.api_key:
+            raise RuntimeError("GEMINI_API_KEY não configurada no ambiente.")
+
         sys_prompt = build_system_prompt()
         payload = {
             "contents": contents,
@@ -346,6 +349,7 @@ class AntigravityExecutionEngine:
             "tools": TOOLS_SCHEMA
         }
         models_to_try = [PRIMARY_MODEL] + FALLBACK_MODELS
+        last_error = "Nenhum modelo respondeu"
         for m in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={self.api_key}"
             timeout_sec = 6.0 if "lite" in m else 7.5
@@ -353,9 +357,19 @@ class AntigravityExecutionEngine:
                 resp = self.http_session.post(url, json=payload, headers={'Connection': 'close'}, timeout=timeout_sec)
                 if resp.status_code == 200:
                     return resp.json()
-            except Exception:
+                else:
+                    err_msg = resp.text[:200]
+                    try:
+                        err_json = resp.json()
+                        err_msg = err_json.get("error", {}).get("message", err_msg)
+                    except Exception:
+                        pass
+                    last_error = f"HTTP {resp.status_code} ({m}): {err_msg}"
+                    print(f"[-] Gemini API erro: {last_error}")
+            except Exception as e:
+                last_error = str(e)
                 continue
-        raise RuntimeError("Todos os modelos Gemini disponíveis oscilaram.")
+        raise RuntimeError(f"Falha na comunicação com Gemini: {last_error}")
 
     def process_query(
         self,
@@ -381,9 +395,17 @@ class AntigravityExecutionEngine:
         try:
             data = self._send_to_gemini(active_contents)
         except Exception as e:
+            err_str = str(e)
+            print(f"[-] Erro ao processar requisição com Gemini: {err_str}")
+            if "leaked" in err_str.lower() or "permission_denied" in err_str.lower():
+                spoken = "Gabriel, sua chave de API do Gemini foi revogada pelo Google por vazamento. Por favor, gere uma nova chave no Google AI Studio e adicione ao arquivo .env e na Railway."
+            elif "não configurada" in err_str.lower() or "not configured" in err_str.lower():
+                spoken = "Gabriel, a chave da API do Gemini não está configurada no servidor. Por favor, adicione a variável GEMINI_API_KEY no painel da Railway."
+            else:
+                spoken = "Gabriel, houve uma oscilação na conexão com a inteligência central. Deseja que eu tente novamente?"
             return {
-                "spoken_text": "Gabriel, houve uma oscilação na conexão com a inteligência central. Deseja que eu tente novamente?",
-                "error": str(e)
+                "spoken_text": spoken,
+                "error": err_str
             }
 
         if cancel_checker and cancel_checker():

@@ -1,5 +1,9 @@
 google-genai
 python-dotenv
+aiohttp
+websockets
+requests
+pillow
+psutil
 sounddevice
 numpy
-psutil

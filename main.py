@@ -44,7 +44,16 @@ def main():
     parser.add_argument("--client", action="store_true", help="Inicia exclusivamente a interface LUNA")
     args = parser.parse_args()
 
-    if args.core:
+    is_cloud_env = (
+        sys.platform != "win32"
+        or os.getenv("RAILWAY_ENVIRONMENT") is not None
+        or os.getenv("RAILWAY_STATIC_URL") is not None
+        or os.getenv("DYNO") is not None
+        or os.getenv("RENDER") is not None
+        or (os.getenv("PORT") is not None and not sys.stdin.isatty())
+    )
+
+    if args.core or is_cloud_env:
         from core.server import main as run_server
         run_server()
         return

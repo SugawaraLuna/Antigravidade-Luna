@@ -9,7 +9,10 @@ import time
 import json
 import asyncio
 import ctypes
-import winsound
+try:
+    import winsound
+except ImportError:
+    winsound = None
 import keyboard
 import threading
 import aiohttp
@@ -24,9 +27,21 @@ from tools.system_control import duck_audio, unduck_audio
 
 load_dotenv()
 
-CORE_HOST = os.getenv("ANTIGRAVITY_CORE_HOST", "127.0.0.1")
-CORE_PORT = int(os.getenv("ANTIGRAVITY_CORE_PORT", "8765"))
-CORE_WS_URL = f"ws://{CORE_HOST}:{CORE_PORT}/ws/luna"
+# Suporte automático para Núcleo Local ou Remoto (Railway / Nuvem)
+CORE_WS_URL = os.getenv("ANTIGRAVITY_CORE_URL")
+if not CORE_WS_URL:
+    CORE_HOST = os.getenv("ANTIGRAVITY_CORE_HOST", "127.0.0.1")
+    CORE_PORT = os.getenv("PORT", os.getenv("ANTIGRAVITY_CORE_PORT", "8765"))
+    CORE_WS_URL = f"ws://{CORE_HOST}:{CORE_PORT}/ws/luna"
+else:
+    # Formatação automática de protocolo caso o usuário use https:// ou http://
+    if CORE_WS_URL.startswith("https://"):
+        CORE_WS_URL = "wss://" + CORE_WS_URL[8:]
+    elif CORE_WS_URL.startswith("http://"):
+        CORE_WS_URL = "ws://" + CORE_WS_URL[7:]
+    if not CORE_WS_URL.endswith("/ws/luna") and not CORE_WS_URL.endswith("/ws/luna/"):
+        CORE_WS_URL = CORE_WS_URL.rstrip("/") + "/ws/luna"
+
 VOICE_NAME = "pt-BR-FranciscaNeural"
 
 # Estados de execução do cliente leve
@@ -124,15 +139,24 @@ class AntigravityClient:
 
 core_client = AntigravityClient(CORE_WS_URL)
 
+def _get_winmm():
+    if sys.platform == "win32" and hasattr(ctypes, "windll"):
+        try:
+            return ctypes.windll.winmm
+        except Exception:
+            pass
+    return None
+
 def stop_speaking():
     global is_speaking_active
     is_speaking_active = False
-    try:
-        winmm = ctypes.windll.winmm
-        winmm.mciSendStringW("stop luna_speech", None, 0, None)
-        winmm.mciSendStringW("close luna_speech", None, 0, None)
-    except Exception:
-        pass
+    winmm = _get_winmm()
+    if winmm:
+        try:
+            winmm.mciSendStringW("stop luna_speech", None, 0, None)
+            winmm.mciSendStringW("close luna_speech", None, 0, None)
+        except Exception:
+            pass
 
 def trigger_emergency_reset():
     """
@@ -160,7 +184,9 @@ def trigger_emergency_reset():
 def play_mp3(file_path: str):
     global is_speaking_active
     full_path = os.path.abspath(file_path)
-    winmm = ctypes.windll.winmm
+    winmm = _get_winmm()
+    if not winmm:
+        return
     winmm.mciSendStringW("close luna_speech", None, 0, None)
     winmm.mciSendStringW(f'open "{full_path}" type mpegvideo alias luna_speech', None, 0, None)
     winmm.mciSendStringW("play luna_speech", None, 0, None)
@@ -172,9 +198,12 @@ def play_mp3(file_path: str):
         if buff.value != "playing":
             break
         # Barge-in / Tecla de pânico
-        if keyboard.is_pressed("F8") or keyboard.is_pressed("esc") or keyboard.is_pressed("f9"):
-            print("\n[🛑 Barge-in]: Fala interrompida pelo usuário via atalho!")
-            break
+        try:
+            if keyboard.is_pressed("F8") or keyboard.is_pressed("esc") or keyboard.is_pressed("f9"):
+                print("\n[🛑 Barge-in]: Fala interrompida pelo usuário via atalho!")
+                break
+        except Exception:
+            pass
         time.sleep(0.04)
         
     winmm.mciSendStringW("stop luna_speech", None, 0, None)
@@ -196,24 +225,27 @@ def speak(text: str):
         print(f"[Erro de TTS]: {e}")
 
 def play_beep_start():
-    try:
-        winsound.Beep(1000, 80)
-        winsound.Beep(1400, 90)
-    except Exception:
-        pass
+    if winsound:
+        try:
+            winsound.Beep(1000, 80)
+            winsound.Beep(1400, 90)
+        except Exception:
+            pass
 
 def play_beep_end():
-    try:
-        winsound.Beep(1200, 70)
-        winsound.Beep(800, 80)
-    except Exception:
-        pass
+    if winsound:
+        try:
+            winsound.Beep(1200, 70)
+            winsound.Beep(800, 80)
+        except Exception:
+            pass
 
 def play_beep_cancel():
-    try:
-        winsound.Beep(600, 120)
-    except Exception:
-        pass
+    if winsound:
+        try:
+            winsound.Beep(600, 120)
+        except Exception:
+            pass
 
 def process_user_turn(user_text: str):
     """Envia requisição da fala ao Núcleo Antigravidade e sintetiza a fala retornada."""

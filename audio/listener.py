@@ -1,4 +1,7 @@
-import winsound
+try:
+    import winsound
+except ImportError:
+    winsound = None
 import keyboard
 import sounddevice as sd
 import numpy as np
@@ -6,18 +9,20 @@ import threading
 import time
 
 def play_beep_start():
-    try:
-        winsound.Beep(1000, 150)
-        winsound.Beep(1400, 150)
-    except Exception:
-        pass
+    if winsound:
+        try:
+            winsound.Beep(1000, 150)
+            winsound.Beep(1400, 150)
+        except Exception:
+            pass
 
 def play_beep_end():
-    try:
-        winsound.Beep(1200, 120)
-        winsound.Beep(800, 150)
-    except Exception:
-        pass
+    if winsound:
+        try:
+            winsound.Beep(1200, 120)
+            winsound.Beep(800, 150)
+        except Exception:
+            pass
 
 class HotkeyVoiceListener:
     def __init__(self, hotkey="F8"):

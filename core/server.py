@@ -15,8 +15,8 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from core.engine import AntigravityExecutionEngine
 
-HOST = os.getenv("ANTIGRAVITY_CORE_HOST", "127.0.0.1")
-PORT = int(os.getenv("ANTIGRAVITY_CORE_PORT", "8765"))
+HOST = os.getenv("HOST", os.getenv("ANTIGRAVITY_CORE_HOST", "0.0.0.0"))
+PORT = int(os.getenv("PORT", os.getenv("ANTIGRAVITY_CORE_PORT", "8765")))
 
 engine = AntigravityExecutionEngine()
 
