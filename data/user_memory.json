@@ -1,0 +1,22 @@
+{
+    "user_name": "Gabriel",
+    "user_role": "Criador e Administrador Geral do Sistema",
+    "favorite_games": [
+        "Assassin's Creed Shadows",
+        "God of War",
+        "Detroit: Become Human",
+        "Dragon Ball FighterZ",
+        "Pragmata"
+    ],
+    "game_aliases": {
+        "jogo de luta": "Dragon Ball FighterZ",
+        "kratos": "God of War",
+        "connor": "Detroit: Become Human",
+        "ac": "Assassin's Creed Shadows"
+    },
+    "custom_paths": {
+        "jogos": "C:\\Games Place\\Pc Games",
+        "instalados": "C:\\Games Place\\Installed Games"
+    },
+    "notes": []
+}
