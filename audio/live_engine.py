@@ -52,10 +52,44 @@ class LunaLiveWebSocketEngine:
         except Exception:
             pass
 
+    def _start_voice_barge_in(self):
+        """Inicia monitoramento em background do microfone para permitir interrupção falando por cima."""
+        self._barge_in_stop = threading.Event()
+        self._barge_in_thread = threading.Thread(target=self._barge_in_worker, daemon=True)
+        self._barge_in_thread.start()
+
+    def _stop_voice_barge_in(self):
+        if hasattr(self, "_barge_in_stop"):
+            self._barge_in_stop.set()
+
+    def _barge_in_worker(self):
+        import numpy as np
+        threshold = 2800  # Limiar seguro para fala humana do Gabriel acima do som ambiente
+        consecutive = 0
+        try:
+            with sd.InputStream(samplerate=16000, channels=1, dtype='int16', blocksize=512) as stream:
+                while not self._barge_in_stop.is_set() and self.is_playing and not self.is_interrupted:
+                    data, _ = stream.read(512)
+                    if not self.is_playing or self.is_interrupted:
+                        break
+                    samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+                    rms = np.sqrt(np.mean(samples**2)) if len(samples) > 0 else 0
+                    if rms > threshold:
+                        consecutive += 1
+                        if consecutive >= 3: # ~100ms contínuos de voz detectada
+                            print("\n[🛑 Barge-in por Voz]: Voz do Gabriel detectada! Interrompendo fala da LUNA...")
+                            self.interrupt()
+                            break
+                    else:
+                        consecutive = max(0, consecutive - 1)
+        except Exception:
+            pass
+
     def interrupt(self):
         """Interrompe imediatamente a fala atual (Barge-in / Reset de Emergência)."""
         self.is_interrupted = True
         self.is_playing = False
+        self._stop_voice_barge_in()
         self.stop_audio()
 
     def _build_tools_list(self, tools_schema: list) -> list:
@@ -93,6 +127,7 @@ class LunaLiveWebSocketEngine:
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=self.voice_name)
                 )
             ),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
             tools=tools,
             system_instruction=types.Content(
                 parts=[types.Part.from_text(text=system_instruction)]
@@ -121,6 +156,7 @@ class LunaLiveWebSocketEngine:
                 first_chunk = True
                 chunk_count = 0
                 t_start = time.time()
+                spoken_text_buffer = ""
 
                 async for response in session.receive():
                     if self.is_interrupted:
@@ -143,7 +179,8 @@ class LunaLiveWebSocketEngine:
 
                             # Se a ferramenta executada foi captura de tela, enviar imagem em tempo real
                             if fn_name == "take_screenshot" and get_screenshot_pil_fn:
-                                pil_img = get_screenshot_pil_fn()
+                                pil_res = get_screenshot_pil_fn()
+                                pil_img = pil_res[0] if isinstance(pil_res, tuple) else pil_res
                                 if pil_img:
                                     try:
                                         print("[📷 Visão WebSocket]: Transmitindo captura de tela para a LUNA...")
@@ -164,9 +201,15 @@ class LunaLiveWebSocketEngine:
                         if hud:
                             hud.set_state("thinking", "Sintetizando resposta...")
 
-                    # 2. Receber chunks de áudio PCM em tempo real (24kHz)
+                    # 2. Receber chunks de áudio PCM em tempo real (24kHz) e transcrição
                     sc = response.server_content
                     if sc is not None:
+                        if hasattr(sc, "output_transcription") and sc.output_transcription and sc.output_transcription.text:
+                            transcript_chunk = sc.output_transcription.text
+                            spoken_text_buffer += transcript_chunk
+                            if hud:
+                                hud.set_state("speaking", spoken_text_buffer[-40:])
+
                         if sc.model_turn is not None:
                             for part in sc.model_turn.parts:
                                 if part.inline_data and not self.is_interrupted:
@@ -186,6 +229,7 @@ class LunaLiveWebSocketEngine:
                                         if hud:
                                             hud.set_state("speaking", "Falando em tempo real...")
                                         self.is_playing = True
+                                        self._start_voice_barge_in()
                                         first_chunk = False
 
                                     chunk_count += 1
@@ -193,16 +237,20 @@ class LunaLiveWebSocketEngine:
                                     self.audio_stream.write(part.inline_data.data)
 
                         if sc.turn_complete:
+                            if spoken_text_buffer.strip():
+                                print(f"\n[LUNA]: {spoken_text_buffer.strip()}\n")
                             break
 
                 # Dar tempo mínimo para os últimos milissegundos do buffer de áudio tocarem
                 await asyncio.sleep(0.4)
+                self._stop_voice_barge_in()
                 self.stop_audio()
                 self.is_playing = False
                 return True
 
         except Exception as e:
             print(f"[-] Oscilação na Live API WebSocket: {e}. Alternando para fallback HTTP...")
+            self._stop_voice_barge_in()
             self.stop_audio()
             self.is_playing = False
             return False

@@ -295,8 +295,8 @@ def process_user_turn(user_text: str):
             print(f"[-] Falha no Live Audio: {live_err}. Alternando para canal secundário...")
 
     # 2. Canal Secundário / Fallback: Núcleo Antigravidade + TTS
-    hud.set_state("thinking", f"'{user_text[:30]}...'")
-    print(f"[*] Enviando para o Núcleo Antigravidade: \"{user_text}\"")
+    hud.set_state("thinking", "Trabalhando nisso...")
+    print(f"\n💭 [LUNA]: Trabalhando nisso...")
 
     resp = core_client.send_query_sync(user_text)
     
@@ -436,6 +436,69 @@ def handle_wake_word(command_remainder: str = None):
             if wake_detector:
                 wake_detector.resume()
 
+f8_lock = threading.Lock()
+
+def handle_manual_f8():
+    """Atalho F8 disparado globalmente para captura manual de voz."""
+    global wake_detector, emergency_reset_active
+    if not f8_lock.acquire(blocking=False):
+        return
+
+    try:
+        emergency_reset_active = False
+        stop_speaking()
+        if wake_detector:
+            wake_detector.pause()
+        duck_audio()
+        play_beep_start()
+        hud.set_state("listening", "Gravando [F8]...")
+        print("\n🎙️ [Atalho F8]: Ouvindo você agora (fale com a Luna)...")
+
+        pcm = record_with_smart_vad(
+            max_wait_silence=5.0,
+            silence_timeout=1.3,
+            abort_checker=lambda: emergency_reset_active
+        )
+
+        if emergency_reset_active:
+            emergency_reset_active = False
+            unduck_audio()
+            hud.set_state("idle")
+            if wake_detector:
+                wake_detector.resume()
+            return
+
+        if not pcm:
+            print("[-] Nenhum áudio detectado no microfone. Cancelando.\n")
+            play_beep_cancel()
+            unduck_audio()
+            hud.set_state("idle")
+            if wake_detector:
+                wake_detector.resume()
+            return
+
+        play_beep_end()
+        hud.set_state("thinking", "Transcrevendo...")
+
+        audio_data = sr.AudioData(pcm, 16000, 2)
+        try:
+            text = recognizer.recognize_google(audio_data, language="pt-BR")
+        except Exception:
+            text = None
+
+        if text:
+            print(f"[Gabriel (Voz)]: \"{text}\"")
+            hud.set_state("thinking", "Pensando...")
+            run_continuous_conversation(initial_text=text)
+        else:
+            play_beep_cancel()
+            unduck_audio()
+            hud.set_state("idle")
+            if wake_detector:
+                wake_detector.resume()
+    finally:
+        f8_lock.release()
+
 def main():
     global wake_detector, emergency_reset_active
 
@@ -447,6 +510,7 @@ def main():
     print("-> Interface Visual: HUD Dinâmico Flutuante (Standby / Ativo)")
     print("-> Ativação por Voz: Diga 'Luna ...' a qualquer momento!")
     print("-> Atalho Manual: Pressione [F8] para falar diretamente.")
+    print("-> Modo Digitação: Digite comandos e perguntas no terminal abaixo.")
     print("-> Tecla de Pânico / Abortar: Pressione [ESC] ou [F9] a qualquer momento.")
     print("-> Conversação Contínua: Responda diretamente após a fala da Luna.")
     print("-> Pressione Ctrl+C para sair.\n")
@@ -463,70 +527,45 @@ def main():
     try:
         keyboard.add_hotkey("esc", trigger_emergency_reset, suppress=False)
         keyboard.add_hotkey("f9", trigger_emergency_reset, suppress=False)
+        keyboard.add_hotkey("f8", lambda: threading.Thread(target=handle_manual_f8, daemon=True).start(), suppress=False)
     except Exception as e:
-        print(f"[-] Aviso ao registrar hotkey de emergência: {e}")
+        print(f"[-] Aviso ao registrar atalhos de teclado: {e}")
+
+    print("💬 [Terminal Pronto]: Digite uma mensagem abaixo ou use a voz (Diga 'Luna' / [F8]):")
 
     while True:
         try:
             emergency_reset_active = False
-            print("[-] Em espera... (Diga 'Luna' ou aperte [F8])")
-            keyboard.wait("F8")
+            user_text = input("\n💬 Gabriel > ")
+            if not user_text or not user_text.strip():
+                continue
 
-            wake_detector.pause()
+            clean_text = user_text.strip()
+            if clean_text.lower() in ["sair", "exit", "quit"]:
+                print("\n[!] Encerrando Luna Client...")
+                break
+
+            emergency_reset_active = False
+            stop_speaking()
+            if wake_detector:
+                wake_detector.pause()
+
             duck_audio()
-            play_beep_start()
-            hud.set_state("listening", "Gravando [F8]...")
+            process_user_turn(clean_text)
+            unduck_audio()
 
-            pcm = record_with_smart_vad(
-                max_wait_silence=5.0,
-                silence_timeout=1.3,
-                abort_checker=lambda: emergency_reset_active
-            )
-
-            if emergency_reset_active:
-                emergency_reset_active = False
-                unduck_audio()
-                hud.set_state("idle")
+            if wake_detector:
                 wake_detector.resume()
-                continue
 
-            if not pcm:
-                print("[-] Nenhum áudio detectado. Cancelando.\n")
-                play_beep_cancel()
-                unduck_audio()
-                hud.set_state("idle")
-                wake_detector.resume()
-                continue
-
-            play_beep_end()
-            hud.set_state("thinking", "Transcrevendo...")
-
-            audio_data = sr.AudioData(pcm, 16000, 2)
-            try:
-                text = recognizer.recognize_google(audio_data, language="pt-BR")
-            except Exception:
-                text = None
-
-            if text:
-                print(f"[Gabriel]: \"{text}\"")
-                hud.set_state("thinking", f"'{text[:30]}...'")
-                run_continuous_conversation(initial_text=text)
-            else:
-                play_beep_cancel()
-                unduck_audio()
-                hud.set_state("idle")
-
-            time.sleep(0.2)
-
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, EOFError):
             print("\n[!] Encerrando Luna Client...")
             break
         except Exception as e:
-            print(f"[Erro no loop do cliente]: {e}")
+            print(f"[Erro no processamento de texto]: {e}")
             hud.set_state("idle")
+            unduck_audio()
             if wake_detector:
                 wake_detector.resume()
-            time.sleep(1)
 
 if __name__ == "__main__":
     main()
