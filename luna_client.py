@@ -246,6 +246,11 @@ def speak(text: str):
     print(f"\n[LUNA]: {clean_text}\n")
     hud.set_state("speaking", clean_text[:45] + "...")
     try:
+        from ui.terminal_ui import detect_and_render_codes_from_text
+        detect_and_render_codes_from_text(clean_text)
+    except Exception:
+        pass
+    try:
         mp3_path = os.path.abspath("temp_response.mp3")
         com = edge_tts.Communicate(clean_text, voice=VOICE_NAME, rate="+6%")
         asyncio.run(com.save(mp3_path))
@@ -489,6 +494,12 @@ def run_continuous_conversation(initial_text: str = None):
             unduck_audio()
             hud.set_state("idle")
             break
+
+        # Manter microfone afastado/inativo enquanto a Luna estiver falando
+        while is_speaking_active or (live_engine and live_engine.is_playing):
+            if emergency_reset_active:
+                break
+            time.sleep(0.05)
 
         time.sleep(0.35)
 

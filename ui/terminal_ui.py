@@ -47,12 +47,62 @@ def render_luna_banner():
     ╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚═╝{RESET}"""
     print(banner_art)
     print(f"{PURPLE_DARK}──────────────────────────────────────────────────────────────────────{RESET}")
-    print(f" {PURPLE_BRIGHT}{BOLD}🌙 LUNA AI v3.0{RESET} • {TEXT_WHITE}O Cérebro Central & Mãe de Todas as IAs{RESET}")
+    print(f" {PURPLE_BRIGHT}{BOLD}🌙 LUNA v3.0{RESET}")
     print(f" {TEXT_MUTED}Status:{RESET} {GREEN_DIFF}[● SUPERUSUÁRIO ATIVO]{RESET} {PURPLE_MAIN}[● NÚCLEO ONLINE]{RESET} {CYAN_ACCENT}[● VOZ LIVE 24kHz]{RESET}")
     print(f"{PURPLE_DARK}──────────────────────────────────────────────────────────────────────{RESET}")
     print(f" {PURPLE_BRIGHT}Atalhos:{RESET} {TEXT_WHITE}[F8]{RESET} {TEXT_MUTED}Voz Manual{RESET} │ {TEXT_WHITE}[ESC/F9]{RESET} {TEXT_MUTED}Pânico{RESET} │ {TEXT_WHITE}/sair{RESET} {TEXT_MUTED}Fechar{RESET} │ {TEXT_WHITE}/rollback{RESET} {TEXT_MUTED}Desfazer{RESET} │ {TEXT_WHITE}/reiniciar{RESET}")
-    print(f" {PURPLE_BRIGHT}Terminal:{RESET} {TEXT_WHITE}Digite abaixo ou fale com a Luna. Suporta Ctrl+V livremente.{RESET}")
+    print(f" {PURPLE_BRIGHT}Terminal:{RESET} {TEXT_WHITE}Digite abaixo ou fale com a Luna.{RESET}")
     print(f"{PURPLE_DARK}──────────────────────────────────────────────────────────────────────{RESET}\n")
+
+def render_codes_card(title: str, codes: list, subtitle: str = ""):
+    """Desenha um card de códigos e itens para seleção fácil com o mouse no terminal."""
+    if not codes:
+        return
+    print(f"\n{PURPLE_MAIN}┌─── 🎮 [{title.upper()}]{RESET}{PURPLE_MAIN} ──────────────────────────────────────{RESET}")
+    if subtitle:
+        print(f"{PURPLE_MAIN}│{RESET}  {TEXT_WHITE}{subtitle}{RESET}")
+        print(f"{PURPLE_MAIN}│{RESET}")
+    for item in codes:
+        code_str = item.strip(" ,.;:")
+        if code_str:
+            print(f"{PURPLE_MAIN}│{RESET}    {CYAN_ACCENT}• {BOLD}{code_str}{RESET}")
+    print(f"{PURPLE_MAIN}├──────────────────────────────────────────────────────────────────{RESET}")
+    print(f"{PURPLE_MAIN}│{RESET}  {GREEN_DIFF}💡 Selecione com o mouse no terminal para copiar direto!{RESET}")
+    print(f"{PURPLE_MAIN}└──────────────────────────────────────────────────────────────────{RESET}\n")
+
+    # Copiar automaticamente todos os códigos para a Área de Transferência
+    try:
+        from tools.clipboard_tools import copy_to_clipboard
+        copy_to_clipboard("\n".join(codes))
+    except Exception:
+        pass
+
+def detect_and_render_codes_from_text(text: str, user_query: str = "") -> bool:
+    """Detecta automaticamente se a resposta contém códigos promocionais/de jogos e os desenha em um card."""
+    if not text:
+        return False
+    
+    query_hint = any(w in (user_query or "").lower() for w in ["codigo", "código", "codes", "cupom", "cupons", "promo"])
+    text_hint = any(w in text.lower() for w in ["código", "codigo", "codes", "ativo", "resgatar"])
+    
+    if not (query_hint or text_hint):
+        return False
+
+    # Regex para capturar sequências em MAIÚSCULAS típicas de códigos (ex: REACTOR, FREEDOM, 2026_CODE, NEBULA)
+    matches = re.findall(r'\b[A-Z0-9_\-]{4,25}\b', text)
+    stopwords = {
+        "LUNA", "ROBLOX", "DISCORD", "TWITTER", "YOUTUBE", "GOOGLE",
+        "WINDOWS", "POWER", "STATUS", "ENTER", "CLIQUE", "JOGO", "GAMES",
+        "ONLINE", "STREAMING", "MAIS", "PARA", "ESTE", "ESSES", "ALGUNS", "TODOS",
+        "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO", "JANEIRO", "FEVEREIRO", "MARCO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO"
+    }
+    codes = [m for m in matches if m not in stopwords]
+    # Remover duplicatas mantendo a ordem
+    unique_codes = list(dict.fromkeys(codes))
+    if unique_codes:
+        render_codes_card("Códigos Encontrados", unique_codes, "Selecione e copie os códigos abaixo:")
+        return True
+    return False
 
 def render_activity_box(action_title: str, details: str = ""):
     """Exibe um card roxo indicando ação do Antigravidade em tempo real."""

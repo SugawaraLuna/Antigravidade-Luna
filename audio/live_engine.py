@@ -64,7 +64,7 @@ class LunaLiveWebSocketEngine:
 
     def _barge_in_worker(self):
         import numpy as np
-        threshold = 2800  # Limiar seguro para fala humana do Gabriel acima do som ambiente
+        threshold = 2500  # Limiar para voz humana do Gabriel interromper com firmeza ('não não', 'para')
         consecutive = 0
         try:
             with sd.InputStream(samplerate=16000, channels=1, dtype='int16', blocksize=512) as stream:
@@ -157,6 +157,7 @@ class LunaLiveWebSocketEngine:
                 chunk_count = 0
                 t_start = time.time()
                 spoken_text_buffer = ""
+                printed_luna_header = False
 
                 async for response in session.receive():
                     if self.is_interrupted:
@@ -178,6 +179,12 @@ class LunaLiveWebSocketEngine:
                             # Executar localmente
                             tool_result = execute_tool_fn(fn_name, fn_args)
                             print(f"[*] Resposta: {str(tool_result)[:120]}...")
+
+                            try:
+                                from ui.terminal_ui import detect_and_render_codes_from_text
+                                detect_and_render_codes_from_text(str(tool_result), user_query=user_text)
+                            except Exception:
+                                pass
 
                             # Se a ferramenta executada foi captura de tela, enviar imagem em tempo real
                             if fn_name == "take_screenshot" and get_screenshot_pil_fn:
@@ -209,6 +216,11 @@ class LunaLiveWebSocketEngine:
                         if hasattr(sc, "output_transcription") and sc.output_transcription and sc.output_transcription.text:
                             transcript_chunk = sc.output_transcription.text
                             spoken_text_buffer += transcript_chunk
+                            if not printed_luna_header:
+                                from ui.terminal_ui import PURPLE_BRIGHT, BOLD, RESET
+                                print(f"\n{PURPLE_BRIGHT}{BOLD}[LUNA]:{RESET} ", end="", flush=True)
+                                printed_luna_header = True
+                            print(transcript_chunk, end="", flush=True)
                             if hud:
                                 hud.set_state("speaking", spoken_text_buffer[-40:])
 
@@ -239,8 +251,17 @@ class LunaLiveWebSocketEngine:
                                     self.audio_stream.write(part.inline_data.data)
 
                         if sc.turn_complete:
-                            if spoken_text_buffer.strip():
-                                print(f"\n[LUNA]: {spoken_text_buffer.strip()}\n")
+                            if printed_luna_header:
+                                print("\n")
+                            elif spoken_text_buffer.strip():
+                                from ui.terminal_ui import PURPLE_BRIGHT, BOLD, RESET
+                                print(f"\n{PURPLE_BRIGHT}{BOLD}[LUNA]:{RESET} {spoken_text_buffer.strip()}\n")
+
+                            try:
+                                from ui.terminal_ui import detect_and_render_codes_from_text
+                                detect_and_render_codes_from_text(spoken_text_buffer, user_query=user_text)
+                            except Exception:
+                                pass
                             break
 
                 # Dar tempo mínimo para os últimos milissegundos do buffer de áudio tocarem

@@ -80,9 +80,9 @@ class LunaHUD:
         self.text_frame = tk.Frame(self.container, bg="#0B0F19")
         self.title_label = tk.Label(
             self.text_frame, 
-            text="LUNA AI", 
+            text="LUNA", 
             font=("Segoe UI", 9, "bold"), 
-            fg="#FF2E93", 
+            fg="#A855F7", 
             bg="#0B0F19",
             anchor="w"
         )
@@ -211,7 +211,7 @@ class LunaHUD:
         else:
             # Estado idle / standby -> volta suavemente para a bolinha
             self.is_expanded = False
-            self.title_label.config(text="LUNA AI", fg="#FF2E93")
+            self.title_label.config(text="LUNA", fg="#A855F7")
             self.status_label.config(text="Standby", fg="#FCE7F3")
             if self.cur_w > self.min_w:
                 self._animate_to(self.min_w, step=-32)

@@ -69,7 +69,7 @@ def main():
 
     # Modo padrão: Orquestração Unificada
     print("=" * 68)
-    print("   🌙 SISTEMA LUNA + NÚCLEO ANTIGRAVIDADE (Inicializador Unificado)")
+    print("   🌙 SISTEMA LUNA")
     print("=" * 68)
 
     core_proc = None
