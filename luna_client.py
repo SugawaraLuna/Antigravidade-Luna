@@ -30,6 +30,7 @@ from core.engine import build_system_prompt, TOOLS_SCHEMA, AntigravityExecutionE
 from tools.screen_tools import capture_screen_pil
 from core.task_manager import task_manager
 from tools.agy_tools import delegate_to_antigravity
+from audio.stt import transcribe_audio_pcm
 
 load_dotenv(override=True)
 
@@ -325,11 +326,17 @@ def is_closure_intent(text: str) -> bool:
         "obrigado", "muito obrigado", "muitíssimo obrigado", "brigado", "brigadão",
         "valeu", "valeu luna", "obrigado luna", "muito obrigado luna",
         "não obrigado", "não, obrigado", "nao obrigado", "nao, obrigado",
-        "não precisa", "nao precisa", "não precisa mais", "nao precisa mais",
-        "nada mais", "não, nada mais", "nao, nada mais",
+        "não preciso de nada", "nao preciso de nada", "não preciso de mais nada", "nao preciso de mais nada",
+        "não preciso de nada não obrigado", "nao preciso de nada nao obrigado",
+        "não quero nada", "nao quero nada", "não quero mais nada", "nao quero mais nada",
+        "não precisa", "nao precisa", "não precisa não", "nao precisa nao", "não precisa mais", "nao precisa mais",
+        "nada não", "nada nao", "nada mais", "não, nada mais", "nao, nada mais",
         "era só isso", "era so isso", "só isso", "so isso", "só isso mesmo", "so isso mesmo",
         "por hoje é só", "por hoje so", "por enquanto não", "por enquanto nao",
-        "tudo certo", "fechou", "tá ótimo", "ta otimo", "beleza, valeu", "beleza valeu",
+        "tudo certo", "fechou", "tá tudo bem", "ta tudo bem", "não, tá tudo bem", "nao, ta tudo bem",
+        "tá tudo certo", "ta tudo certo", "não, tá tudo certo", "nao, ta tudo certo",
+        "tá ótimo", "ta otimo", "tá ótimo assim", "ta otimo assim", "beleza, valeu", "beleza valeu",
+        "pode deixar", "pode deixar, obrigado", "pode deixar obrigado",
         "pode descansar", "tchau", "até mais", "ate mais", "até logo", "ate logo",
         "cancelar", "cancela", "deixa pra lá", "deixa pra la", "esquece", "pode parar"
     }
@@ -337,16 +344,23 @@ def is_closure_intent(text: str) -> bool:
         return True
 
     closure_patterns = [
-        r"^não,?\s*(muito\s*)?obrigad[ao]",
-        r"^não,?\s*valeu",
-        r"^não,?\s*era\s*só\s*isso",
-        r"^não,?\s*por\s*enquanto\s*não",
-        r"^não,?\s*tá\s*tudo\s*certo",
+        r"^n[aã]o,?\s*(muito\s*)?obrigad[ao]",
+        r"^n[aã]o,?\s*valeu",
+        r"^n[aã]o,?\s*era\s*s[oó]\s*isso",
+        r"^n[aã]o,?\s*por\s*enquanto\s*n[aã]o",
+        r"^n[aã]o,?\s*t[aá]\s*tudo\s*(certo|bem|tranquilo|ótimo|otimo)",
+        r"^t[aá]\s*tudo\s*(certo|bem|tranquilo|ótimo|otimo)",
+        r"^t[aá]\s*(ótimo|otimo|bom|perfeito)\s*assim",
+        r"^pode\s*deixar,?\s*(obrigad[ao]|valeu)?",
+        r"^n[aã]o\s*(preciso|quero)\s*(de\s*)?(mais\s*)?nada",
+        r"^n[aã]o\s*precisa\s*(n[aã]o|mais)",
+        r"n[aã]o\s*preciso\s*de\s*nada.*obrigad[ao]",
+        r"obrigad[ao]\s*$",
         r"^muito\s*obrigad[ao]\s*(luna)?",
         r"^obrigad[ao]\s*(luna)?",
         r"^valeu\s*(luna)?",
         r"^tchau\s*(luna)?",
-        r"^até\s*logo",
+        r"^at[eé]\s*(mais|logo)",
         r"^deixa\s*pra\s*l[aá]",
         r"^pode\s*descansar"
     ]
@@ -460,7 +474,8 @@ def run_continuous_conversation(initial_text: str = None):
 
         pcm = record_with_smart_vad(
             max_wait_silence=5.0,
-            silence_timeout=1.3,
+            silence_timeout=2.2,
+            max_speech_duration=45.0,
             abort_checker=lambda: emergency_reset_active
         )
 
@@ -479,11 +494,7 @@ def run_continuous_conversation(initial_text: str = None):
 
         play_beep_end()
         hud.set_state("thinking", "Transcrevendo...")
-        audio_data = sr.AudioData(pcm, 16000, 2)
-        try:
-            text = recognizer.recognize_google(audio_data, language="pt-BR")
-        except Exception:
-            text = None
+        text = transcribe_audio_pcm(pcm)
 
         if text:
             print(f"[Gabriel]: \"{text}\"")
@@ -559,7 +570,8 @@ def handle_wake_word(command_remainder: str = None):
         hud.set_state("listening", "Fale agora...")
         pcm = record_with_smart_vad(
             max_wait_silence=5.0,
-            silence_timeout=1.3,
+            silence_timeout=2.2,
+            max_speech_duration=45.0,
             abort_checker=lambda: emergency_reset_active
         )
         if emergency_reset_active:
@@ -572,36 +584,44 @@ def handle_wake_word(command_remainder: str = None):
 
         if pcm:
             play_beep_end()
-            audio_data = sr.AudioData(pcm, 16000, 2)
+            hud.set_state("thinking", "Transcrevendo...")
             try:
-                text = recognizer.recognize_google(audio_data, language="pt-BR")
-                print(f"[Gabriel (Voz)]: \"{text}\"")
-                if is_cancel_task_intent(text):
-                    task_manager.cancel_active_task()
-                    process_user_turn("O Gabriel pediu para cancelar a tarefa ativa ou deixar pra lá. Confirme com carinho em 1 frase curta.")
-                    unduck_audio()
-                    hud.set_state("idle")
-                    if wake_detector:
-                        wake_detector.resume()
-                    return
-                if handle_confirmation_turn(text):
-                    unduck_audio()
-                    hud.set_state("idle")
-                    if wake_detector:
-                        wake_detector.resume()
-                    return
-                if is_closure_intent(text):
-                    closing_prompt = f"O Gabriel disse: '{text}'. Responda de forma fofa e amigável em 1 frase curta."
-                    process_user_turn(closing_prompt)
-                    unduck_audio()
-                    hud.set_state("idle")
-                    if wake_detector:
-                        wake_detector.resume()
-                    return
+                text = transcribe_audio_pcm(pcm)
+                if text:
+                    print(f"[Gabriel (Voz)]: \"{text}\"")
+                    if is_cancel_task_intent(text):
+                        task_manager.cancel_active_task()
+                        process_user_turn("O Gabriel pediu para cancelar a tarefa ativa ou deixar pra lá. Confirme com carinho em 1 frase curta.")
+                        unduck_audio()
+                        hud.set_state("idle")
+                        if wake_detector:
+                            wake_detector.resume()
+                        return
+                    if handle_confirmation_turn(text):
+                        unduck_audio()
+                        hud.set_state("idle")
+                        if wake_detector:
+                            wake_detector.resume()
+                        return
+                    if is_closure_intent(text):
+                        closing_prompt = f"O Gabriel disse: '{text}'. Responda de forma fofa e amigável em 1 frase curta."
+                        process_user_turn(closing_prompt)
+                        unduck_audio()
+                        hud.set_state("idle")
+                        if wake_detector:
+                            wake_detector.resume()
+                        return
 
-                hud.set_state("thinking", "Pensando...")
-                run_continuous_conversation(initial_text=text)
-            except Exception:
+                    hud.set_state("thinking", "Pensando...")
+                    run_continuous_conversation(initial_text=text)
+                else:
+                    play_beep_cancel()
+                    unduck_audio()
+                    hud.set_state("idle")
+                    if wake_detector:
+                        wake_detector.resume()
+            except Exception as e:
+                print(f"[-] Erro ao processar transcrição: {e}")
                 play_beep_cancel()
                 unduck_audio()
                 hud.set_state("idle")
@@ -634,7 +654,8 @@ def handle_manual_f8():
 
         pcm = record_with_smart_vad(
             max_wait_silence=5.0,
-            silence_timeout=1.3,
+            silence_timeout=2.2,
+            max_speech_duration=45.0,
             abort_checker=lambda: emergency_reset_active
         )
 
@@ -658,10 +679,10 @@ def handle_manual_f8():
         play_beep_end()
         hud.set_state("thinking", "Transcrevendo...")
 
-        audio_data = sr.AudioData(pcm, 16000, 2)
         try:
-            text = recognizer.recognize_google(audio_data, language="pt-BR")
-        except Exception:
+            text = transcribe_audio_pcm(pcm)
+        except Exception as e:
+            print(f"[-] Erro na transcrição F8: {e}")
             text = None
 
         if text:

@@ -24,6 +24,8 @@ from tools.screen_tools import capture_screen_pil, capture_screen_base64
 from tools.agy_tools import delegate_to_antigravity
 from tools.hardware_monitor import get_hardware_stats
 from tools.memory_manager import get_memory_context_string, remember_user_fact
+from tools.internet_tools import get_live_weather, search_internet_info, open_in_browser
+from tools.clipboard_tools import handle_code_delivery
 from core.task_manager import task_manager
 
 API_KEY = os.getenv("GEMINI_API_KEY")
@@ -256,6 +258,42 @@ TOOLS_SCHEMA = [{
                 },
                 "required": ["fact", "action_label"]
             }
+        },
+        {
+            "name": "get_live_weather",
+            "description": "Obtém as condições climáticas e previsão do tempo em tempo real (temperatura em °C, sensação térmica, umidade, vento e chuva) para a localização do usuário ou cidade informada. Use SEMPRE que o Gabriel perguntar sobre o clima, previsão do tempo, calor ou frio!",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "city_name": {"type": "STRING", "description": "Nome opcional da cidade (ex: 'São Paulo', 'Rio de Janeiro'). Se omitido, usa a localização atual do Gabriel."},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português (ex: 'Consultando previsão do tempo ao vivo')"}
+                },
+                "required": ["action_label"]
+            }
+        },
+        {
+            "name": "search_internet_info",
+            "description": "Pesquisa informações e resumos em tempo real na internet sobre fatos, notícias, cotações ou dúvidas gerais para ler e responder diretamente por voz, SEM abrir o navegador. Use quando o Gabriel perguntar sobre fatos externos ou notícias!",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {"type": "STRING", "description": "Termo ou pergunta a ser pesquisada na internet"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português (ex: 'Pesquisando informações na internet')"}
+                },
+                "required": ["query", "action_label"]
+            }
+        },
+        {
+            "name": "open_in_browser",
+            "description": "Abre o navegador padrão do usuário em uma pesquisa no Google ou link específico. Use SEMPRE que o Gabriel pedir expressamente 'abre no Google', 'abre no navegador' ou 'pesquisa no Google'!",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query_or_url": {"type": "STRING", "description": "O termo a pesquisar no Google ou o link URL completo a abrir"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português (ex: 'Abrindo pesquisa no Google')"}
+                },
+                "required": ["query_or_url", "action_label"]
+            }
         }
     ]
 }]
@@ -283,10 +321,14 @@ def build_system_prompt() -> str:
         "4. JOGO CRASHOU: Se o jogo fechar do nada ou der crash, chame SEMPRE 'check_crash_logs'.\n"
         "5. HARDWARE / STATUS: Se perguntar sobre temperatura, GPU RTX 5060, CPU ou RAM, chame 'get_hardware_stats'.\n"
         "6. VISÃO DA TELA: Se pedir para ver ou interpretar o que tem na tela, chame 'take_screenshot'.\n"
-        "7. DELEGAR AO ANTIGRAVIDADE: Se o Gabriel perguntar sobre arquiteturas (como conectar celular ao Railway), criar códigos, automações ou consultar o antigravidade, chame 'delegate_to_antigravity' com a descrição completa da tarefa!\n"
+        "7. DELEGAR AO ANTIGRAVIDADE: Se o Gabriel pedir para programar, criar scripts, automações, arquiteturas ou consultar o antigravidade, chame 'delegate_to_antigravity' com a descrição completa da tarefa! Sempre que um código for gerado, avise com simpatia que ele já foi printado no terminal e copiado para a Área de Transferência (Ctrl+V) dele!\n"
         "8. CONFIRMAÇÃO DE PERMISSÃO & OPÇÃO 4: Se o antigravidade informar que precisa de permissão (retorno 'PERMISSAO_NECESSARIA...'), você DEVE retornar ao Gabriel com carinho dizendo: 'Eu só preciso da sua confirmação para executar [X ação], por favor.' e aguardar a resposta dele. Quando o Gabriel responder 'Sim', 'pode fazer', 'confirmo', 'autorizo', 'opção 4' ou similares, isso significa a Opção 4 (aceita tudo relacionado). Chame 'delegate_to_antigravity' com 'auto_approve=True' e confirme a execução com entusiasmo!\n"
-        f"9. {task_str}\n"
-        f"10. {mem_str}"
+        "9. CLIMA & PREVISÃO DO TEMPO EM TEMPO REAL: Você TEM acesso ao clima ao vivo! Quando o Gabriel perguntar sobre clima, previsão do tempo, chuva, frio ou calor, chame SEMPRE 'get_live_weather' e responda com os dados reais em voz alta de forma natural e agradável. NUNCA diga que não consegue verificar o clima!\n"
+        "10. BUSCA NA INTERNET EM TEMPO REAL: Quando o Gabriel perguntar sobre notícias, fatos recentes ou dúvidas gerais do mundo, chame 'search_internet_info' para ler o resumo na internet e responder diretamente por voz com assertividade.\n"
+        "11. ABRIR NO GOOGLE (PROATIVIDADE MÁXIMA): Se o Gabriel disser 'abre no Google', 'abre no navegador' ou 'abre o que eu pedi', chame IMEDIATAMENTE a ferramenta 'open_in_browser' com o assunto recente. NUNCA pergunte 'o que você quer que eu pesquise?'. Seja proativa e execute a abertura de imediato!\n"
+        "12. TRANSIÇÃO DISCURSIVA DO 'NÃO' NO PORTUGUÊS BRASILEIRO: Se o Gabriel disser frases como 'não, abre no Google pra mim', 'não precisa, faz X' ou 'não, faz isso', entenda que o 'não' é apenas uma transição para mudar de assunto (e NÃO uma recusa da ação seguinte). Execute a ação solicitada com agilidade!\n"
+        f"13. {task_str}\n"
+        f"14. {mem_str}"
     )
 
 class AntigravityExecutionEngine:
@@ -368,11 +410,26 @@ class AntigravityExecutionEngine:
             auto_approve = args.get("auto_approve", False)
             task_title = action_label or task_desc[:60]
             task_manager.start_active_task(title=task_title, details=task_desc, action_label=action_label or "Consultando antigravidade...")
+            task_manager.set_recent_topic(task_desc)
             res = delegate_to_antigravity(task_desc, target_path=args.get("target_path"), auto_approve=auto_approve)
             if "PERMISSAO_NECESSARIA:" in res:
                 task_manager.update_task_progress(action_label="Aguardando confirmação do Gabriel", result=res)
             else:
+                delivery_note = handle_code_delivery(res, task_hint=task_desc)
+                if delivery_note:
+                    res += f"\n\n[Sistema de Entrega]: {delivery_note}"
                 task_manager.complete_active_task(result_summary=res[:400])
+        elif name == "get_live_weather":
+            city = args.get("city_name")
+            res = get_live_weather(city)
+        elif name == "search_internet_info":
+            q = args.get("query", "")
+            res = search_internet_info(q)
+        elif name == "open_in_browser":
+            target = args.get("query_or_url", "")
+            if not target or any(w in target.lower() for w in ["o que eu pedi", "ele", "isso", "o script", "codigo", "código"]):
+                target = task_manager.get_recent_topic() or "Google Apps Script planilhas"
+            res = open_in_browser(target)
         elif name == "maximize_or_focus_window":
             res = maximize_app_window(args.get("app_name", ""))
         elif name == "get_hardware_stats":

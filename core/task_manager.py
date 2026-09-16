@@ -13,6 +13,8 @@ class TaskManager:
             cls._instance = super(TaskManager, cls).__new__(cls)
             cls._instance.active_task = None
             cls._instance.pending_permission = None
+            cls._instance.recent_topic = ""
+            cls._instance.last_generated_code = ""
         return cls._instance
 
     def get_active_task(self) -> Optional[Dict[str, Any]]:
@@ -91,8 +93,31 @@ class TaskManager:
     def clear_pending_permission(self):
         self.pending_permission = None
 
+    def set_recent_topic(self, topic: str):
+        """Atualiza o assunto ou artefato técnico mais recente da conversa."""
+        self.recent_topic = topic.strip()
+
+    def get_recent_topic(self) -> str:
+        return self.recent_topic
+
+    def set_last_generated_code(self, code: str, lang: str = ""):
+        self.last_generated_code = code
+
+    def get_last_generated_code(self) -> str:
+        return self.last_generated_code
+
     def get_task_context_string(self) -> str:
         ctx_parts = []
+
+        if self.recent_topic:
+            ctx_parts.append(
+                f"\n--- TÓPICO / ARTEFATO TÉCNICO RECENTE ---\n"
+                f"Assunto Recente Tratado: {self.recent_topic}\n"
+                f"DIRETRIZ DE PROATIVIDADE: Se o Gabriel pedir 'abre no Google', 'pesquisa sobre isso' ou 'abre ele', "
+                f"abra IMEDIATAMENTE a pesquisa no navegador padrão usando a ferramenta 'open_in_browser' "
+                f"pesquisando exatamente '{self.recent_topic}', SEM fazer perguntas de esclarecimento!\n"
+                f"-----------------------------------------\n"
+            )
         
         if self.has_pending_permission():
             perm = self.pending_permission
