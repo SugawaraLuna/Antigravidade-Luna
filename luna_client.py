@@ -34,7 +34,10 @@ if not CORE_WS_URL:
     CORE_PORT = os.getenv("PORT", os.getenv("ANTIGRAVITY_CORE_PORT", "8765"))
     CORE_WS_URL = f"ws://{CORE_HOST}:{CORE_PORT}/ws/luna"
 else:
-    # Formatação automática de protocolo caso o usuário use https:// ou http://
+    # Formatação automática de protocolo caso o usuário use https://, http:// ou apenas o domínio
+    CORE_WS_URL = CORE_WS_URL.strip()
+    if not (CORE_WS_URL.startswith("ws://") or CORE_WS_URL.startswith("wss://") or CORE_WS_URL.startswith("http://") or CORE_WS_URL.startswith("https://")):
+        CORE_WS_URL = "wss://" + CORE_WS_URL
     if CORE_WS_URL.startswith("https://"):
         CORE_WS_URL = "wss://" + CORE_WS_URL[8:]
     elif CORE_WS_URL.startswith("http://"):
