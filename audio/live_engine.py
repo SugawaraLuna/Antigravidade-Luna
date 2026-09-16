@@ -169,13 +169,15 @@ class LunaLiveWebSocketEngine:
                         for fc in response.tool_call.function_calls:
                             fn_name = fc.name
                             fn_args = fc.args if hasattr(fc, "args") and fc.args else {}
+                            action_label = fn_args.get("action_label")
+                            display_text = action_label if action_label else f"Processando: {fn_name}..."
                             if hud:
-                                hud.set_state("thinking", f"Executando: {fn_name}")
-                            print(f"\n🧠 [Raciocínio WebSocket]: Ferramenta '{fn_name}' acionada ({fn_args})")
+                                hud.set_state("thinking", display_text)
+                            print(f"\n🧠 [Raciocínio LUNA]: {display_text}")
                             
                             # Executar localmente
                             tool_result = execute_tool_fn(fn_name, fn_args)
-                            print(f"[*] Resposta local: {str(tool_result)[:120]}...")
+                            print(f"[*] Resposta: {str(tool_result)[:120]}...")
 
                             # Se a ferramenta executada foi captura de tela, enviar imagem em tempo real
                             if fn_name == "take_screenshot" and get_screenshot_pil_fn:

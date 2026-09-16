@@ -17,6 +17,7 @@ import keyboard
 import threading
 import aiohttp
 import edge_tts
+import re
 import speech_recognition as sr
 from dotenv import load_dotenv
 
@@ -27,6 +28,7 @@ from tools.system_control import duck_audio, unduck_audio
 from audio.live_engine import LunaLiveWebSocketEngine
 from core.engine import build_system_prompt, TOOLS_SCHEMA, AntigravityExecutionEngine
 from tools.screen_tools import capture_screen_pil
+from core.task_manager import task_manager
 
 load_dotenv(override=True)
 
@@ -310,10 +312,64 @@ def process_user_turn(user_text: str):
 
     hud.set_state("idle")
 
+def is_closure_intent(text: str) -> bool:
+    """
+    Detecta se a fala do Gabriel é um encerramento natural do assunto,
+    agradecimento ou confirmação de que não precisa de mais nada.
+    """
+    if not text:
+        return False
+    clean = text.lower().strip(" .,!?¡¿;:")
+    exact_closures = {
+        "obrigado", "muito obrigado", "muitíssimo obrigado", "brigado", "brigadão",
+        "valeu", "valeu luna", "obrigado luna", "muito obrigado luna",
+        "não obrigado", "não, obrigado", "nao obrigado", "nao, obrigado",
+        "não precisa", "nao precisa", "não precisa mais", "nao precisa mais",
+        "nada mais", "não, nada mais", "nao, nada mais",
+        "era só isso", "era so isso", "só isso", "so isso", "só isso mesmo", "so isso mesmo",
+        "por hoje é só", "por hoje so", "por enquanto não", "por enquanto nao",
+        "tudo certo", "fechou", "tá ótimo", "ta otimo", "beleza, valeu", "beleza valeu",
+        "pode descansar", "tchau", "até mais", "ate mais", "até logo", "ate logo",
+        "cancelar", "cancela", "deixa pra lá", "deixa pra la", "esquece", "pode parar"
+    }
+    if clean in exact_closures:
+        return True
+
+    closure_patterns = [
+        r"^não,?\s*(muito\s*)?obrigad[ao]",
+        r"^não,?\s*valeu",
+        r"^não,?\s*era\s*só\s*isso",
+        r"^não,?\s*por\s*enquanto\s*não",
+        r"^não,?\s*tá\s*tudo\s*certo",
+        r"^muito\s*obrigad[ao]\s*(luna)?",
+        r"^obrigad[ao]\s*(luna)?",
+        r"^valeu\s*(luna)?",
+        r"^tchau\s*(luna)?",
+        r"^até\s*logo",
+        r"^deixa\s*pra\s*l[aá]",
+        r"^pode\s*descansar"
+    ]
+    for pat in closure_patterns:
+        if re.search(pat, clean):
+            return True
+
+    return False
+
+def is_cancel_task_intent(text: str) -> bool:
+    if not text:
+        return False
+    clean = text.lower().strip(" .,!?")
+    cancel_words = [
+        "cancela", "cancelar", "deixa pra lá", "deixa pra la",
+        "esquece", "pode parar", "cancela a tarefa", "esquece isso", "para com isso"
+    ]
+    return any(w in clean for w in cancel_words)
+
 def run_continuous_conversation(initial_text: str = None):
     """
     Modo conversacional contínuo:
     Processa primeiro turno e continua ouvindo por até 5s sem exigir 'Luna'.
+    Encerra imediatamente para Standby se for detectado fim de assunto.
     """
     global wake_detector, emergency_reset_active
 
@@ -373,10 +429,24 @@ def run_continuous_conversation(initial_text: str = None):
 
         if text:
             print(f"[Gabriel]: \"{text}\"")
-            hud.set_state("thinking", f"'{text[:30]}...'")
-            clean_lower = text.lower().strip(" .,!?")
-            if any(w == clean_lower for w in ["tchau", "cancelar", "só isso", "valeu", "nada mais", "pode descansar"]):
-                speak("Até mais, Gabriel! Qualquer coisa é só chamar.")
+            hud.set_state("thinking", "Pensando...")
+
+            # 1. Cancelar tarefa ativa / Deixar pra lá
+            if is_cancel_task_intent(text):
+                task_manager.cancel_active_task()
+                closing_prompt = f"O Gabriel disse '{text}'. Cancelei a tarefa ativa. Responda de forma fofa e acolhedora em 1 frase curta confirmando que deixou pra lá e que está à disposição."
+                process_user_turn(closing_prompt)
+                print("\n[-] Tarefa cancelada. Retornando diretamente para Standby...")
+                play_beep_cancel()
+                unduck_audio()
+                hud.set_state("idle")
+                break
+
+            # 2. Encerramento natural / Agradecimento / Término de assunto
+            if is_closure_intent(text):
+                closing_prompt = f"O Gabriel disse '{text}'. Trata-se de um encerramento natural de assunto ou agradecimento. Responda de forma fofa, espontânea e amigável em 1 frase curta concluindo a conversa (ex: agradecendo ou dizendo que está sempre por aqui se ele precisar)."
+                process_user_turn(closing_prompt)
+                print("\n[-] Assunto concluído. Retornando diretamente para Standby...")
                 unduck_audio()
                 hud.set_state("idle")
                 break
@@ -398,7 +468,24 @@ def handle_wake_word(command_remainder: str = None):
 
     if command_remainder:
         print(f"[Gabriel (Voz Wake)]: \"{command_remainder}\"")
-        hud.set_state("thinking", f"'{command_remainder[:30]}...'")
+        if is_cancel_task_intent(command_remainder):
+            task_manager.cancel_active_task()
+            process_user_turn("O Gabriel pediu para cancelar a tarefa ativa ou deixar pra lá. Confirme com carinho em 1 frase curta.")
+            unduck_audio()
+            hud.set_state("idle")
+            if wake_detector:
+                wake_detector.resume()
+            return
+        if is_closure_intent(command_remainder):
+            closing_prompt = f"O Gabriel disse: '{command_remainder}'. Responda de forma fofa e amigável em 1 frase curta."
+            process_user_turn(closing_prompt)
+            unduck_audio()
+            hud.set_state("idle")
+            if wake_detector:
+                wake_detector.resume()
+            return
+
+        hud.set_state("thinking", "Pensando...")
         run_continuous_conversation(initial_text=command_remainder)
     else:
         hud.set_state("listening", "Fale agora...")
@@ -421,7 +508,24 @@ def handle_wake_word(command_remainder: str = None):
             try:
                 text = recognizer.recognize_google(audio_data, language="pt-BR")
                 print(f"[Gabriel (Voz)]: \"{text}\"")
-                hud.set_state("thinking", f"'{text[:30]}...'")
+                if is_cancel_task_intent(text):
+                    task_manager.cancel_active_task()
+                    process_user_turn("O Gabriel pediu para cancelar a tarefa ativa ou deixar pra lá. Confirme com carinho em 1 frase curta.")
+                    unduck_audio()
+                    hud.set_state("idle")
+                    if wake_detector:
+                        wake_detector.resume()
+                    return
+                if is_closure_intent(text):
+                    closing_prompt = f"O Gabriel disse: '{text}'. Responda de forma fofa e amigável em 1 frase curta."
+                    process_user_turn(closing_prompt)
+                    unduck_audio()
+                    hud.set_state("idle")
+                    if wake_detector:
+                        wake_detector.resume()
+                    return
+
+                hud.set_state("thinking", "Pensando...")
                 run_continuous_conversation(initial_text=text)
             except Exception:
                 play_beep_cancel()
@@ -488,6 +592,24 @@ def handle_manual_f8():
 
         if text:
             print(f"[Gabriel (Voz)]: \"{text}\"")
+            if is_cancel_task_intent(text):
+                task_manager.cancel_active_task()
+                process_user_turn("O Gabriel pediu para cancelar a tarefa ativa ou deixar pra lá. Confirme com carinho em 1 frase curta.")
+                unduck_audio()
+                hud.set_state("idle")
+                if wake_detector:
+                    wake_detector.resume()
+                return
+
+            if is_closure_intent(text):
+                closing_prompt = f"O Gabriel disse: '{text}'. Responda de forma fofa e amigável em 1 frase curta."
+                process_user_turn(closing_prompt)
+                unduck_audio()
+                hud.set_state("idle")
+                if wake_detector:
+                    wake_detector.resume()
+                return
+
             hud.set_state("thinking", "Pensando...")
             run_continuous_conversation(initial_text=text)
         else:
@@ -551,8 +673,18 @@ def main():
                 wake_detector.pause()
 
             duck_audio()
-            process_user_turn(clean_text)
+
+            if is_cancel_task_intent(clean_text):
+                task_manager.cancel_active_task()
+                process_user_turn("O Gabriel pediu para cancelar a tarefa ativa ou deixar pra lá. Confirme com carinho em 1 frase curta.")
+            elif is_closure_intent(clean_text):
+                closing_prompt = f"O Gabriel disse: '{clean_text}'. Trata-se de um encerramento natural de assunto ou agradecimento. Responda de forma fofa e amigável em 1 frase curta."
+                process_user_turn(closing_prompt)
+            else:
+                process_user_turn(clean_text)
+
             unduck_audio()
+            hud.set_state("idle")
 
             if wake_detector:
                 wake_detector.resume()

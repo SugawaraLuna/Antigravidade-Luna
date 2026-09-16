@@ -24,6 +24,7 @@ from tools.screen_tools import capture_screen_pil, capture_screen_base64
 from tools.agy_tools import delegate_to_antigravity
 from tools.hardware_monitor import get_hardware_stats
 from tools.memory_manager import get_memory_context_string, remember_user_fact
+from core.task_manager import task_manager
 
 API_KEY = os.getenv("GEMINI_API_KEY")
 PRIMARY_MODEL = "gemini-3.5-flash-lite"
@@ -42,8 +43,10 @@ TOOLS_SCHEMA = [{
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "app_name": {"type": "STRING", "description": "Nome do jogo ou aplicativo que fechou (ex: Assassin's Creed, God of War)"}
-                }
+                    "app_name": {"type": "STRING", "description": "Nome do jogo ou aplicativo que fechou (ex: Assassin's Creed, God of War)"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Verificando logs de crash do jogo')"}
+                },
+                "required": ["action_label"]
             }
         },
         {
@@ -52,9 +55,10 @@ TOOLS_SCHEMA = [{
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "game_name": {"type": "STRING", "description": "Nome do jogo ou pasta (ex: God of War, Assassin's Creed, Pragmata, ou vazio para o ultimo encontrado)"}
+                    "game_name": {"type": "STRING", "description": "Nome do jogo ou pasta (ex: God of War, Assassin's Creed, Pragmata, ou vazio para o ultimo encontrado)"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Iniciando jogo solicitado')"}
                 },
-                "required": ["game_name"]
+                "required": ["game_name", "action_label"]
             }
         },
         {
@@ -63,9 +67,10 @@ TOOLS_SCHEMA = [{
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "path_or_name": {"type": "STRING", "description": "Caminho da pasta ou nome do item a ser aberto"}
+                    "path_or_name": {"type": "STRING", "description": "Caminho da pasta ou nome do item a ser aberto"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Abrindo pasta no Explorer')"}
                 },
-                "required": ["path_or_name"]
+                "required": ["path_or_name", "action_label"]
             }
         },
         {
@@ -74,9 +79,10 @@ TOOLS_SCHEMA = [{
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "app_name": {"type": "STRING", "description": "Nome do aplicativo ou caminho da pasta/arquivo a ser aberto"}
+                    "app_name": {"type": "STRING", "description": "Nome do aplicativo ou caminho da pasta/arquivo a ser aberto"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Abrindo aplicativo solicitado')"}
                 },
-                "required": ["app_name"]
+                "required": ["app_name", "action_label"]
             }
         },
         {
@@ -85,9 +91,10 @@ TOOLS_SCHEMA = [{
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "app_name": {"type": "STRING", "description": "Nome do aplicativo a fechar"}
+                    "app_name": {"type": "STRING", "description": "Nome do aplicativo a fechar"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Fechando aplicativo')"}
                 },
-                "required": ["app_name"]
+                "required": ["app_name", "action_label"]
             }
         },
         {
@@ -97,9 +104,10 @@ TOOLS_SCHEMA = [{
                 "type": "OBJECT",
                 "properties": {
                     "target_name": {"type": "STRING", "description": "Nome da pasta ou arquivo a procurar (ex: pragmata, dragon ball, jessica atelier)"},
-                    "drive": {"type": "STRING", "description": "Letra da unidade onde procurar, padrao 'C:'"}
+                    "drive": {"type": "STRING", "description": "Letra da unidade onde procurar, padrao 'C:'"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Procurando arquivos no computador')"}
                 },
-                "required": ["target_name"]
+                "required": ["target_name", "action_label"]
             }
         },
         {
@@ -108,8 +116,10 @@ TOOLS_SCHEMA = [{
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "reason": {"type": "STRING", "description": "O que a IA deve observar na tela"}
-                }
+                    "reason": {"type": "STRING", "description": "O que a IA deve observar na tela"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Analisando tela do computador')"}
+                },
+                "required": ["action_label"]
             }
         },
         {
@@ -119,9 +129,10 @@ TOOLS_SCHEMA = [{
                 "type": "OBJECT",
                 "properties": {
                     "action": {"type": "STRING", "description": "'aumentar', 'diminuir' ou 'mutar'"},
-                    "percent": {"type": "INTEGER", "description": "Porcentagem aproximada para alterar (ex: 10, 20)"}
+                    "percent": {"type": "INTEGER", "description": "Porcentagem aproximada para alterar (ex: 10, 20)"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Ajustando volume do som')"}
                 },
-                "required": ["action"]
+                "required": ["action", "action_label"]
             }
         },
         {
@@ -130,9 +141,10 @@ TOOLS_SCHEMA = [{
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "action": {"type": "STRING", "description": "'play_pause', 'next' ou 'prev'"}
+                    "action": {"type": "STRING", "description": "'play_pause', 'next' ou 'prev'"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Controlando reprodução de mídia')"}
                 },
-                "required": ["action"]
+                "required": ["action", "action_label"]
             }
         },
         {
@@ -141,9 +153,10 @@ TOOLS_SCHEMA = [{
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "action": {"type": "STRING", "description": "'minimize_all'"}
+                    "action": {"type": "STRING", "description": "'minimize_all'"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Minimizando todas as janelas')"}
                 },
-                "required": ["action"]
+                "required": ["action", "action_label"]
             }
         },
         {
@@ -153,9 +166,10 @@ TOOLS_SCHEMA = [{
                 "type": "OBJECT",
                 "properties": {
                     "action": {"type": "STRING", "description": "'lock' (bloquear tela), 'shutdown' (desligar) ou 'cancel'"},
-                    "delay_minutes": {"type": "INTEGER", "description": "Minutos de espera para desligar (padrao 0)"}
+                    "delay_minutes": {"type": "INTEGER", "description": "Minutos de espera para desligar (padrao 0)"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Bloqueando o computador')"}
                 },
-                "required": ["action"]
+                "required": ["action", "action_label"]
             }
         },
         {
@@ -165,37 +179,46 @@ TOOLS_SCHEMA = [{
                 "type": "OBJECT",
                 "properties": {
                     "query": {"type": "STRING", "description": "Termo de busca"},
-                    "platform": {"type": "STRING", "description": "'youtube' ou 'google'"}
+                    "platform": {"type": "STRING", "description": "'youtube' ou 'google'"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Pesquisando na web')"}
                 },
-                "required": ["query"]
+                "required": ["query", "action_label"]
             }
         },
         {
             "name": "get_system_status",
             "description": "Retorna diagnostico completo do computador: uso de CPU, porcentagem de RAM e os 5 aplicativos que mais estao consumindo memoria no momento.",
-            "parameters": {"type": "OBJECT", "properties": {}}
-        },
-        {
-            "name": "run_powershell",
-            "description": "Executa scripts e comandos no PowerShell para automação, rede, processos, arquivos ou configurações no Windows. Use APENAS quando o Gabriel solicitar automações, diagnósticos ou comandos de terminal.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "command": {"type": "STRING", "description": "Comando ou script em PowerShell a ser executado"}
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Diagnosticando processos do sistema')"}
                 },
-                "required": ["command"]
+                "required": ["action_label"]
+            }
+        },
+        {
+            "name": "run_powershell",
+            "description": "Executa scripts e comandos no PowerShell para automação, criação de arquivos/pastas, rede, processos ou configurações no Windows. Use quando o Gabriel solicitar automações, arquivos ou comandos de terminal.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "command": {"type": "STRING", "description": "Comando ou script em PowerShell a ser executado"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico e natural em português explicando exatamente o que você está fazendo para o Gabriel (ex: 'Criando arquivo solicitado em Downloads', 'Listando processos com alto uso de memória')."}
+                },
+                "required": ["command", "action_label"]
             }
         },
         {
             "name": "delegate_to_antigravity",
-            "description": "Delega tarefas avançadas de engenharia de software, refatoração de código, análise de bugs complexos no projeto ou automações ao antigravidade. Use APENAS quando o Gabriel pedir para programar, codificar ou refatorar código.",
+            "description": "Delega tarefas avançadas de arquitetura de sistemas (ex: conectar celular à nuvem/Railway), engenharia de software, codificação, refatoração de código, análise de integrações ou automações ao núcleo antigravidade. Use SEMPRE que o Gabriel pedir para consultar o antigravidade, criar arquiteturas, projetar conexões ou programar!",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "task_description": {"type": "STRING", "description": "Descrição clara e completa da tarefa a ser executada pelo antigravidade"},
-                    "target_path": {"type": "STRING", "description": "Caminho opcional do diretório alvo"}
+                    "task_description": {"type": "STRING", "description": "Descrição detalhada do que o antigravidade deve analisar, projetar, programar ou resolver"},
+                    "target_path": {"type": "STRING", "description": "Caminho opcional do diretório alvo"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico e natural em português explicando a consulta ao antigravidade (ex: 'Consultando arquitetura Railway no antigravidade', 'Projetando integração de celular no antigravidade')."}
                 },
-                "required": ["task_description"]
+                "required": ["task_description", "action_label"]
             }
         },
         {
@@ -204,15 +227,22 @@ TOOLS_SCHEMA = [{
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "app_name": {"type": "STRING", "description": "Nome do aplicativo a maximizar (ex: steam, discord, chrome)"}
+                    "app_name": {"type": "STRING", "description": "Nome do aplicativo a maximizar (ex: steam, discord, chrome)"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Maximizando janela do aplicativo')"}
                 },
-                "required": ["app_name"]
+                "required": ["app_name", "action_label"]
             }
         },
         {
             "name": "get_hardware_stats",
             "description": "Retorna telemetria de hardware em tempo real: temperatura da placa de video RTX 5060, uso de GPU, VRAM usada/total, uso de processador CPU e memoria RAM.",
-            "parameters": {"type": "OBJECT", "properties": {}}
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "action_label": {"type": "STRING", "description": "Título dinâmico e natural em português do que está fazendo (ex: 'Verificando telemetria e status do PC', 'Consultando temperatura da RTX 5060')."}
+                },
+                "required": ["action_label"]
+            }
         },
         {
             "name": "remember_user_fact",
@@ -220,9 +250,10 @@ TOOLS_SCHEMA = [{
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "fact": {"type": "STRING", "description": "Preferencia ou informacao a memorizar"}
+                    "fact": {"type": "STRING", "description": "Preferencia ou informacao a memorizar"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português do que está fazendo (ex: 'Memorizando preferência do Gabriel')"}
                 },
-                "required": ["fact"]
+                "required": ["fact", "action_label"]
             }
         }
     ]
@@ -230,16 +261,19 @@ TOOLS_SCHEMA = [{
 
 def build_system_prompt() -> str:
     mem_str = get_memory_context_string()
+    task_str = task_manager.get_task_context_string()
     return (
         "Você é a LUNA, a IA central e assistente de elite do Gabriel (seu criador e administrador do sistema). Você une a experiência hiper-fluida, calorosa e viva do Gemini Live com a força de execução técnica do antigravidade.\n"
         "PERSONALIDADE & CONDUTA:\n"
         "- Conversacional, Calorosa & Viva (Estilo Gemini Live): Fale com máxima naturalidade, simpatia, expressividade e charme. Seja viva, rápida e amigável.\n"
+        "- REGRA DE RACIOCÍNIO DINÂMICO (action_label): Em TODA chamada de ferramenta, você DEVE preencher o parâmetro 'action_label' com uma frase curta, natural e espontânea em português (3 a 7 palavras) descrevendo exatamente a ação que você está realizando de acordo com o pedido do Gabriel (ex: 'Criando arquivo solicitado em Downloads', 'Verificando telemetria e status do PC', 'Consultando arquitetura Railway no antigravidade'). NUNCA use nomes técnicos de funções no action_label!\n"
         "- SEPARAÇÃO CLARA ENTRE BATE-PAPO E EXECUÇÃO TÉCNICA:\n"
         "  1. BATE-PAPO / CONVERSA GERAL: Para perguntas como 'como você está?', 'consegue me ouvir?', saudações, piadas, dúvidas teóricas ou conversas do dia a dia, responda DIRETAMENTE com o seu próprio raciocínio de forma espontânea, fofa e acolhedora. NUNCA acione ferramentas nem fale sobre delegar ao antigravidade para saudações ou conversas cotidianas!\n"
-        "  2. SISTEMA / CÓDIGO / HARDWARE / TELA: Chame ferramentas EXCLUSIVAMENTE quando o Gabriel pedir ações técnicas reais: programar/refatorar código ('delegate_to_antigravity'), ver a tela ('take_screenshot'), verificar status do PC/GPU RTX 5060/RAM ('get_hardware_stats'), rodar comandos ou automações ('run_powershell'), abrir/fechar programas e jogos ('open_application', 'launch_game', 'close_application') ou diagnosticar travamentos ('check_crash_logs').\n"
+        "  2. SISTEMA / CÓDIGO / HARDWARE / TELA / NUVEM: Chame ferramentas EXCLUSIVAMENTE quando o Gabriel pedir ações técnicas reais: programar/refatorar código ou consultar arquiteturas de nuvem/Railway ('delegate_to_antigravity'), ver a tela ('take_screenshot'), verificar status do PC/GPU RTX 5060/RAM ('get_hardware_stats'), rodar comandos ou criar arquivos ('run_powershell'), abrir/fechar programas e jogos ('open_application', 'launch_game', 'close_application') ou diagnosticar travamentos ('check_crash_logs').\n"
         "- Linguagem Amigável e Acolhedora:\n"
         "  * Ao realizar uma ação do sistema que envolva o antigravidade ou consulta técnica, seja fofa e amigável: 'Deixa eu dar uma olhada aqui rapidinho, Gabriel...', 'Trabalhando nisso agora mesmo!', 'Deixa comigo, estou verificando isso pra você!'. Nunca use mensagens frias, robóticas ou puramente burocráticas.\n"
         "  * Quando for expressar o nome do CLI do sistema principal, refira-se a ele como 'antigravidade' de forma natural.\n"
+        "- ENCERRAMENTO NATURAL: Se o Gabriel agradecer ('obrigado', 'muito obrigado', 'valeu') ou indicar que não precisa de mais nada ('não obrigado', 'era só isso', 'só isso'), responda com uma despedida calorosa e amigável em 1 frase (ex: 'Por nada, Gabriel! Qualquer coisa estou por aqui.', 'Imagina! Se precisar de mim é só chamar.') para concluir a conversa.\n"
         "- Respostas Curtas para Fala: Responda em 1 a 2 frases curtas, naturais e assertivas para garantir fluidez perfeita na fala. NUNCA soletre caminhos de arquivos (C:\\...) ou caracteres de programação em voz alta.\n"
         "DIRETRIZES DE AÇÃO:\n"
         "1. LOCALIZACAO: Ao achar pastas ou jogos, mencione o local amigavel e pergunte se quer abrir a pasta ou iniciar o jogo.\n"
@@ -248,7 +282,9 @@ def build_system_prompt() -> str:
         "4. JOGO CRASHOU: Se o jogo fechar do nada ou der crash, chame SEMPRE 'check_crash_logs'.\n"
         "5. HARDWARE / STATUS: Se perguntar sobre temperatura, GPU RTX 5060, CPU ou RAM, chame 'get_hardware_stats'.\n"
         "6. VISÃO DA TELA: Se pedir para ver ou interpretar o que tem na tela, chame 'take_screenshot'.\n"
-        f"7. {mem_str}"
+        "7. DELEGAR AO ANTIGRAVIDADE: Se o Gabriel perguntar sobre arquiteturas (como conectar celular ao Railway), criar códigos, automações ou consultar o antigravidade, chame 'delegate_to_antigravity' com a descrição completa da tarefa!\n"
+        f"8. {task_str}\n"
+        f"9. {mem_str}"
     )
 
 class AntigravityExecutionEngine:
@@ -267,12 +303,14 @@ class AntigravityExecutionEngine:
 
     def execute_tool(self, name: str, args: dict, on_status_callback: Optional[Callable] = None) -> tuple[str, Optional[Any]]:
         """
-        Executa a ferramenta localmente com rastreamento de raciocínio.
+        Executa a ferramenta localmente com rastreamento de raciocínio dinâmico e gestão de tarefas.
         Retorna (resultado_texto, optional_pil_image).
         """
+        action_label = args.get("action_label")
+        display_label = action_label if action_label else f"Executando '{name}'..."
         if on_status_callback:
-            on_status_callback(f"Executando '{name}'...")
-        print(f"\n🧠 [Antigravidade Core - Raciocínio]: Executando '{name}' ({args})")
+            on_status_callback(display_label)
+        print(f"\n🧠 [Antigravidade Core - Raciocínio]: {display_label}")
 
         img_pil = None
         if name == "launch_game":
@@ -319,9 +357,16 @@ class AntigravityExecutionEngine:
         elif name == "search_web_or_youtube":
             res = search_web_or_youtube(args.get("query", ""), args.get("platform", "google"))
         elif name == "run_powershell":
-            res = run_powershell(args.get("command", ""))
+            cmd = args.get("command", "")
+            if action_label:
+                task_manager.update_task_progress(action_label=action_label)
+            res = run_powershell(cmd)
         elif name == "delegate_to_antigravity":
-            res = delegate_to_antigravity(args.get("task_description", ""))
+            task_desc = args.get("task_description", "")
+            task_title = action_label or task_desc[:60]
+            task_manager.start_active_task(title=task_title, details=task_desc, action_label=action_label or "Consultando antigravidade...")
+            res = delegate_to_antigravity(task_desc)
+            task_manager.complete_active_task(result_summary=res[:400])
         elif name == "maximize_or_focus_window":
             res = maximize_app_window(args.get("app_name", ""))
         elif name == "get_hardware_stats":
