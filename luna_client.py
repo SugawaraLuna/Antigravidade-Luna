@@ -25,7 +25,7 @@ from audio.vad_recorder import record_with_smart_vad, set_vad_abort
 from audio.wake_word import WakeWordDetector
 from tools.system_control import duck_audio, unduck_audio
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Suporte automático para Núcleo Local ou Remoto (Railway / Nuvem)
 CORE_WS_URL = os.getenv("ANTIGRAVITY_CORE_URL")

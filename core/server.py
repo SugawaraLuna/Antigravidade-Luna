@@ -6,7 +6,7 @@ import time
 from aiohttp import web
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Assegurar codificação UTF-8
 if hasattr(sys.stdout, "reconfigure"):

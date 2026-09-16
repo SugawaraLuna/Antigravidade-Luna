@@ -10,6 +10,9 @@ import threading
 import argparse
 import subprocess
 import requests
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 CORE_HOST = os.getenv("ANTIGRAVITY_CORE_HOST", "127.0.0.1")
 CORE_PORT = int(os.getenv("ANTIGRAVITY_CORE_PORT", "8765"))
