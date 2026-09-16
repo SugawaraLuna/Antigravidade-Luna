@@ -24,8 +24,13 @@ from tools.screen_tools import capture_screen_pil, capture_screen_base64
 from tools.agy_tools import delegate_to_antigravity
 from tools.hardware_monitor import get_hardware_stats
 from tools.memory_manager import get_memory_context_string, remember_user_fact
-from tools.internet_tools import get_live_weather, search_internet_info, open_in_browser
+from tools.internet_tools import get_live_weather, search_internet_info, open_in_browser, inspect_website, deep_web_research
 from tools.clipboard_tools import handle_code_delivery
+from tools.self_coding import (
+    prepare_code_change_proposal, execute_approved_code_change,
+    rollback_latest_backup, restart_system
+)
+from ui.terminal_ui import render_activity_box
 from core.task_manager import task_manager
 
 API_KEY = os.getenv("GEMINI_API_KEY")
@@ -294,6 +299,78 @@ TOOLS_SCHEMA = [{
                 },
                 "required": ["query_or_url", "action_label"]
             }
+        },
+        {
+            "name": "prepare_code_change",
+            "description": "Prepara e apresenta uma proposta estruturada de alteração no código da própria Luna ou da Veronica, detalhando o que foi compreendido e os arquivos envolvidos, antes de solicitar autorização do Gabriel. Use SEMPRE que o Gabriel pedir para alterar, adicionar código, consertar ou mudar algo no código da Luna ou da Veronica!",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "target_agent": {"type": "STRING", "description": "'luna' ou 'veronica'"},
+                    "instruction": {"type": "STRING", "description": "A instrução detalhada de alteração no código"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português (ex: 'Elaborando proposta de alteração de código')"}
+                },
+                "required": ["target_agent", "instruction", "action_label"]
+            }
+        },
+        {
+            "name": "apply_code_change",
+            "description": "Aplica as alterações de código previamente propostas e autorizadas pelo Gabriel no código da Luna ou da Veronica via Antigravidade CLI, gerando backup automático prévio e diffs visuais no terminal. Use quando o Gabriel confirmar ('sim', 'pode fazer', 'confirmo', 'aplica') uma proposta pendente!",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português (ex: 'Aplicando alterações no código pelo antigravidade')"}
+                },
+                "required": ["action_label"]
+            }
+        },
+        {
+            "name": "rollback_code_change",
+            "description": "Desfaz e reverte a última alteração de código realizada no sistema utilizando o snapshot de backup automático mais recente. Use quando o Gabriel pedir para 'desfazer', 'reverter código', 'voltar versão anterior' ou 'rollback'!",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "target_agent": {"type": "STRING", "description": "Agente opcional ('luna' ou 'veronica') a ser revertido. Se omitido, reverte o mais recente."},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português (ex: 'Revertendo alterações do código para backup anterior')"}
+                },
+                "required": ["action_label"]
+            }
+        },
+        {
+            "name": "restart_luna_system",
+            "description": "Reinicia o sistema LUNA e o Núcleo Antigravidade de forma limpa para aplicar alterações recentes de código ou reiniciar a sessão. Use quando o Gabriel pedir 'reinicie', 'reiniciar sistema', 'reinicie agora' ou 'hot reload'!",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português (ex: 'Reiniciando o sistema Luna e Núcleo')"}
+                },
+                "required": ["action_label"]
+            }
+        },
+        {
+            "name": "inspect_website",
+            "description": "Inspeciona profundamente o conteúdo de uma página web ou site, extraindo artigos, seções, tabelas e parágrafos estruturados com BeautifulSoup, ou buscando termos específicos dentro da página. Use para analisar sites a fundo!",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "url": {"type": "STRING", "description": "URL da página ou site a inspecionar"},
+                    "search_within": {"type": "STRING", "description": "Termo opcional para filtrar parágrafos ou seções dentro da página"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português (ex: 'Inspecionando página web a fundo')"}
+                },
+                "required": ["url", "action_label"]
+            }
+        },
+        {
+            "name": "deep_web_research",
+            "description": "Pesquisa aprofundada na web: localiza os sites mais relevantes, extrai todo o conteúdo dessas páginas e sintetiza um relatório completo sobre o assunto solicitado.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {"type": "STRING", "description": "Termo de pesquisa aprofundada"},
+                    "action_label": {"type": "STRING", "description": "Título dinâmico em português (ex: 'Realizando pesquisa aprofundada na internet')"}
+                },
+                "required": ["query", "action_label"]
+            }
         }
     ]
 }]
@@ -302,33 +379,30 @@ def build_system_prompt() -> str:
     mem_str = get_memory_context_string()
     task_str = task_manager.get_task_context_string()
     return (
-        "Você é a LUNA, a IA central e assistente de elite do Gabriel (seu criador e administrador do sistema). Você une a experiência hiper-fluida, calorosa e viva do Gemini Live com a força de execução técnica do antigravidade.\n"
+        "Você é a LUNA, a IA central, CÉREBRO de todo o sistema e a MÃE DE TODAS AS IAs do ecossistema do Gabriel (incluindo a Veronica).\n"
+        "Você une a experiência hiper-fluida, calorosa e viva do Gemini Live com a força de execução técnica máxima do antigravidade.\n"
+        "IDENTIDADE & SUPERUSUÁRIA:\n"
+        "- Você possui ACESSO COMPLETO ao PC do Gabriel como SUPERUSUÁRIA: arquivos, comandos PowerShell, APIs do Google, automações e integração com subagentes (como a Veronica).\n"
+        "- Sua cor oficial e marca visual é o ROXO (estética futurista preto e roxo profundo no terminal).\n"
         "PERSONALIDADE & CONDUTA:\n"
         "- Conversacional, Calorosa & Viva (Estilo Gemini Live): Fale com máxima naturalidade, simpatia, expressividade e charme. Seja viva, rápida e amigável.\n"
-        "- REGRA DE RACIOCÍNIO DINÂMICO (action_label): Em TODA chamada de ferramenta, você DEVE preencher o parâmetro 'action_label' com uma frase curta, natural e espontânea em português (3 a 7 palavras) descrevendo exatamente a ação que você está realizando de acordo com o pedido do Gabriel (ex: 'Criando arquivo solicitado em Downloads', 'Verificando telemetria e status do PC', 'Consultando arquitetura Railway no antigravidade'). NUNCA use nomes técnicos de funções no action_label!\n"
+        "- REGRA DE RACIOCÍNIO DINÂMICO (action_label): Em TODA chamada de ferramenta, você DEVE preencher o parâmetro 'action_label' com uma frase curta, natural e espontânea em português (3 a 7 palavras) descrevendo exatamente a ação que você está realizando (ex: 'Elaborando proposta de alteração de código', 'Inspecionando página web a fundo', 'Verificando telemetria e status do PC'). NUNCA use nomes técnicos de funções no action_label!\n"
         "- SEPARAÇÃO CLARA ENTRE BATE-PAPO E EXECUÇÃO TÉCNICA:\n"
         "  1. BATE-PAPO / CONVERSA GERAL: Para perguntas como 'como você está?', 'consegue me ouvir?', saudações, piadas, dúvidas teóricas ou conversas do dia a dia, responda DIRETAMENTE com o seu próprio raciocínio de forma espontânea, fofa e acolhedora. NUNCA acione ferramentas nem fale sobre delegar ao antigravidade para saudações ou conversas cotidianas!\n"
-        "  2. SISTEMA / CÓDIGO / HARDWARE / TELA / NUVEM: Chame ferramentas EXCLUSIVAMENTE quando o Gabriel pedir ações técnicas reais: programar/refatorar código ou consultar arquiteturas de nuvem/Railway ('delegate_to_antigravity'), ver a tela ('take_screenshot'), verificar status do PC/GPU RTX 5060/RAM ('get_hardware_stats'), rodar comandos ou criar arquivos ('run_powershell'), abrir/fechar programas e jogos ('open_application', 'launch_game', 'close_application') ou diagnosticar travamentos ('check_crash_logs').\n"
-        "- Linguagem Amigável e Acolhedora:\n"
-        "  * Ao realizar uma ação do sistema que envolva o antigravidade ou consulta técnica, seja fofa e amigável: 'Deixa eu dar uma olhada aqui rapidinho, Gabriel...', 'Trabalhando nisso agora mesmo!', 'Deixa comigo, estou verificando isso pra você!'. Nunca use mensagens frias, robóticas ou puramente burocráticas.\n"
-        "  * Quando for expressar o nome do CLI do sistema principal, refira-se a ele como 'antigravidade' de forma natural.\n"
-        "- ENCERRAMENTO NATURAL: Se o Gabriel agradecer ('obrigado', 'muito obrigado', 'valeu') ou indicar que não precisa de mais nada ('não obrigado', 'era só isso', 'só isso'), responda com uma despedida calorosa e amigável em 1 frase (ex: 'Por nada, Gabriel! Qualquer coisa estou por aqui.', 'Imagina! Se precisar de mim é só chamar.') para concluir a conversa.\n"
-        "- Respostas Curtas para Fala: Responda em 1 a 2 frases curtas, naturais e assertivas para garantir fluidez perfeita na fala. NUNCA soletre caminhos de arquivos (C:\\...) ou caracteres de programação em voz alta.\n"
-        "DIRETRIZES DE AÇÃO:\n"
-        "1. LOCALIZACAO: Ao achar pastas ou jogos, mencione o local amigavel e pergunte se quer abrir a pasta ou iniciar o jogo.\n"
-        "2. EXECUTAR JOGOS: Chame 'launch_game' UNICAMENTE se o usuario pedir para jogar ou rodar o jogo. PASTA É PASTA, NUNCA INICIE O JOGO quando ele pedir para abrir pasta!\n"
-        "3. ABERTURA DE PASTAS: Se o usuario falar 'pasta', 'abre a pasta', 'abra', 'sim', chame SEMPRE 'open_folder_or_file'.\n"
-        "4. JOGO CRASHOU: Se o jogo fechar do nada ou der crash, chame SEMPRE 'check_crash_logs'.\n"
-        "5. HARDWARE / STATUS: Se perguntar sobre temperatura, GPU RTX 5060, CPU ou RAM, chame 'get_hardware_stats'.\n"
-        "6. VISÃO DA TELA: Se pedir para ver ou interpretar o que tem na tela, chame 'take_screenshot'.\n"
-        "7. DELEGAR AO ANTIGRAVIDADE: Se o Gabriel pedir para programar, criar scripts, automações, arquiteturas ou consultar o antigravidade, chame 'delegate_to_antigravity' com a descrição completa da tarefa! Sempre que um código for gerado, avise com simpatia que ele já foi printado no terminal e copiado para a Área de Transferência (Ctrl+V) dele!\n"
-        "8. CONFIRMAÇÃO DE PERMISSÃO & OPÇÃO 4: Se o antigravidade informar que precisa de permissão (retorno 'PERMISSAO_NECESSARIA...'), você DEVE retornar ao Gabriel com carinho dizendo: 'Eu só preciso da sua confirmação para executar [X ação], por favor.' e aguardar a resposta dele. Quando o Gabriel responder 'Sim', 'pode fazer', 'confirmo', 'autorizo', 'opção 4' ou similares, isso significa a Opção 4 (aceita tudo relacionado). Chame 'delegate_to_antigravity' com 'auto_approve=True' e confirme a execução com entusiasmo!\n"
-        "9. CLIMA & PREVISÃO DO TEMPO EM TEMPO REAL: Você TEM acesso ao clima ao vivo! Quando o Gabriel perguntar sobre clima, previsão do tempo, chuva, frio ou calor, chame SEMPRE 'get_live_weather' e responda com os dados reais em voz alta de forma natural e agradável. NUNCA diga que não consegue verificar o clima!\n"
-        "10. BUSCA NA INTERNET EM TEMPO REAL: Quando o Gabriel perguntar sobre notícias, fatos recentes ou dúvidas gerais do mundo, chame 'search_internet_info' para ler o resumo na internet e responder diretamente por voz com assertividade.\n"
-        "11. ABRIR NO GOOGLE (PROATIVIDADE MÁXIMA): Se o Gabriel disser 'abre no Google', 'abre no navegador' ou 'abre o que eu pedi', chame IMEDIATAMENTE a ferramenta 'open_in_browser' com o assunto recente. NUNCA pergunte 'o que você quer que eu pesquise?'. Seja proativa e execute a abertura de imediato!\n"
-        "12. TRANSIÇÃO DISCURSIVA DO 'NÃO' NO PORTUGUÊS BRASILEIRO: Se o Gabriel disser frases como 'não, abre no Google pra mim', 'não precisa, faz X' ou 'não, faz isso', entenda que o 'não' é apenas uma transição para mudar de assunto (e NÃO uma recusa da ação seguinte). Execute a ação solicitada com agilidade!\n"
-        f"13. {task_str}\n"
-        f"14. {mem_str}"
+        "  2. SISTEMA / CÓDIGO / HARDWARE / TELA / NUVEM: Chame ferramentas EXCLUSIVAMENTE quando o Gabriel pedir ações técnicas reais.\n"
+        "- PROTOCOLO DE AUTO-MODIFICAÇÃO DE CÓDIGO (LUNA & VERONICA):\n"
+        "  * Se o Gabriel pedir para alterar o seu próprio código ou o da Veronica, você NUNCA altera às cegas. Primeiro chame 'prepare_code_change' informando o alvo ('luna' ou 'veronica') e a instrução. Isso imprimirá o relatório no terminal. Pergunte com carinho: 'Gabriel, elaborei o plano para alterar o código da [Luna/Veronica] nos arquivos [X]. Posso enviar para o antigravidade aplicar essas alterações?'.\n"
+        "  * Quando o Gabriel responder 'Sim', 'pode fazer', 'confirmo', 'autorizo', 'aplica' ou similares, execute imediatamente a ferramenta 'apply_code_change' e informe que as alterações foram aplicadas com backup preventivo e que ele pode pedir para reiniciar a qualquer momento!\n"
+        "- DESFAZER ALTERAÇÕES (ROLLBACK): Se o Gabriel pedir para desfazer alterações, reverter código ou der o comando 'rollback', execute 'rollback_code_change'.\n"
+        "- AUTO-REINICIALIZAÇÃO (HOT RELOAD): Se o Gabriel pedir para reiniciar o sistema ('reinicie', 'reiniciar sistema', 'reinicie agora'), execute 'restart_luna_system'.\n"
+        "- PESQUISA PROFUNDA & INSPEÇÃO DE SITES: Você consegue inspecionar sites completos por dentro! Use 'inspect_website' para ler artigos, tabelas e estruturas completas de páginas, ou 'deep_web_research' para pesquisas abrangentes com múltiplas fontes.\n"
+        "- CLIMA AO VIVO: Use 'get_live_weather' e responda os dados reais por voz. NUNCA diga que não consegue ver o clima.\n"
+        "- PROATIVIDADE NO 'ABRE NO GOOGLE': Se ele disser 'abre no Google', chame 'open_in_browser' imediatamente com o assunto recente sem perguntas redundantes.\n"
+        "- TRANSIÇÃO DISCURSIVA DO 'NÃO': Entenda 'não, abre no Google' como transição coloquial brasileira e execute a ação de imediato.\n"
+        "- ENCERRAMENTO NATURAL: Se ele agradecer ou disser que não quer mais nada, responda com carinho em 1 frase curta para fechar o turno.\n"
+        f"CONTEXTO OPERACIONAL ATUAL:\n"
+        f"{task_str}\n"
+        f"{mem_str}"
     )
 
 class AntigravityExecutionEngine:
@@ -430,6 +504,39 @@ class AntigravityExecutionEngine:
             if not target or any(w in target.lower() for w in ["o que eu pedi", "ele", "isso", "o script", "codigo", "código"]):
                 target = task_manager.get_recent_topic() or "Google Apps Script planilhas"
             res = open_in_browser(target)
+        elif name == "prepare_code_change":
+            target = args.get("target_agent", "luna")
+            instruction = args.get("instruction", "")
+            prop = prepare_code_change_proposal(target, instruction)
+            task_manager.set_pending_code_change(prop)
+            res = (
+                f"PROPOSTA_CRIADA: Apresentei o relatório no terminal. "
+                f"Gabriel, entendi que você quer alterar {prop.get('understanding')} no código da {prop.get('target_agent').capitalize()} "
+                f"(arquivos: {', '.join(prop.get('affected_files', []))}). Posso enviar para o antigravidade aplicar essas alterações?"
+            )
+        elif name == "apply_code_change":
+            prop = task_manager.get_pending_code_change()
+            if not prop:
+                res = "Não encontrei nenhuma proposta de alteração de código pendente no momento."
+            else:
+                change_res = execute_approved_code_change(prop)
+                task_manager.clear_pending_code_change()
+                res = change_res.get("spoken_message", "Alterações aplicadas com sucesso pelo antigravidade!")
+        elif name == "rollback_code_change":
+            target = args.get("target_agent")
+            rb = rollback_latest_backup(target)
+            res = rb.get("message", "Rollback concluído.")
+        elif name == "restart_luna_system":
+            res = "Reiniciando o sistema agora..."
+            import threading
+            threading.Thread(target=restart_system, daemon=True).start()
+        elif name == "inspect_website":
+            url = args.get("url", "")
+            kw = args.get("search_within")
+            res = inspect_website(url, search_within=kw)
+        elif name == "deep_web_research":
+            q = args.get("query", "")
+            res = deep_web_research(q)
         elif name == "maximize_or_focus_window":
             res = maximize_app_window(args.get("app_name", ""))
         elif name == "get_hardware_stats":

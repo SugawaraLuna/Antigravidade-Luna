@@ -13,6 +13,7 @@ class TaskManager:
             cls._instance = super(TaskManager, cls).__new__(cls)
             cls._instance.active_task = None
             cls._instance.pending_permission = None
+            cls._instance.pending_code_change = None
             cls._instance.recent_topic = ""
             cls._instance.last_generated_code = ""
         return cls._instance
@@ -93,6 +94,20 @@ class TaskManager:
     def clear_pending_permission(self):
         self.pending_permission = None
 
+    def set_pending_code_change(self, proposal: Dict[str, Any]) -> Dict[str, Any]:
+        """Registra uma proposta de alteração de código aguardando autorização explícita do Gabriel."""
+        self.pending_code_change = proposal
+        return self.pending_code_change
+
+    def get_pending_code_change(self) -> Optional[Dict[str, Any]]:
+        return self.pending_code_change
+
+    def has_pending_code_change(self) -> bool:
+        return self.pending_code_change is not None
+
+    def clear_pending_code_change(self):
+        self.pending_code_change = None
+
     def set_recent_topic(self, topic: str):
         """Atualiza o assunto ou artefato técnico mais recente da conversa."""
         self.recent_topic = topic.strip()
@@ -117,6 +132,20 @@ class TaskManager:
                 f"abra IMEDIATAMENTE a pesquisa no navegador padrão usando a ferramenta 'open_in_browser' "
                 f"pesquisando exatamente '{self.recent_topic}', SEM fazer perguntas de esclarecimento!\n"
                 f"-----------------------------------------\n"
+            )
+
+        if self.has_pending_code_change():
+            prop = self.pending_code_change
+            target = prop.get("target_agent", "Luna").upper()
+            ctx_parts.append(
+                f"\n--- PROPOSTA DE ALTERAÇÃO DE CÓDIGO PENDENTE DE APROVAÇÃO ---\n"
+                f"Alvo: {target}\n"
+                f"O que foi compreendido: {prop.get('understanding')}\n"
+                f"Arquivos a alterar: {', '.join(prop.get('affected_files', []))}\n"
+                f"Instrução: {prop.get('instruction')}\n"
+                f"DIRETRIZ DE AUTORIZAÇÃO: Você apresentou o relatório ao Gabriel. Se ele responder 'Sim', 'pode fazer', 'confirmo', 'aplica' ou similar, "
+                f"execute imediatamente a ferramenta 'apply_code_change' e avise com carinho que o código foi alterado com backup preventivo e que ele pode pedir para reiniciar se quiser!\n"
+                f"---------------------------------------------------------------\n"
             )
         
         if self.has_pending_permission():

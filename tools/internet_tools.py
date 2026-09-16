@@ -131,3 +131,106 @@ def open_in_browser(query_or_url: str) -> str:
         google_url = f"https://www.google.com/search?q={requests.utils.quote(target)}"
         webbrowser.open(google_url)
         return f"Abri a pesquisa no Google por '{target}' no seu navegador padrão."
+
+def inspect_website(url: str, search_within: str = None, max_chars: int = 8000) -> str:
+    """
+    Navega profundamente em uma página web e inspeciona todo o seu conteúdo textual e estrutural.
+    - Extrai títulos, artigos, parágrafos e tabelas.
+    - Se search_within for informado, filtra e foca nos parágrafos e dados relacionados ao assunto.
+    """
+    target_url = url.strip()
+    if not target_url.startswith("http://") and not target_url.startswith("https://"):
+        target_url = "https://" + target_url
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+
+    try:
+        from bs4 import BeautifulSoup
+        resp = requests.get(target_url, headers=headers, timeout=10, allow_redirects=True)
+        if resp.status_code != 200:
+            return f"Não foi possível acessar a página {target_url} (Código HTTP {resp.status_code})."
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Remover elementos inúteis
+        for tag in soup(["script", "style", "nav", "footer", "aside", "header", "noscript", "svg", "form"]):
+            tag.decompose()
+
+        page_title = soup.title.string.strip() if soup.title and soup.title.string else target_url
+
+        # Extrair texto limpo estruturado
+        headings = [h.get_text(strip=True) for h in soup.find_all(["h1", "h2", "h3"]) if h.get_text(strip=True)]
+        paragraphs = [p.get_text(strip=True) for p in soup.find_all("p") if len(p.get_text(strip=True)) > 25]
+
+        # Se houver busca interna dentro da página
+        if search_within and search_within.strip():
+            kw = search_within.strip().lower()
+            matched_paras = [p for p in paragraphs if kw in p.lower()]
+            if matched_paras:
+                res = f"Resultados encontrados em '{page_title}' sobre '{search_within}':\n\n"
+                res += "\n\n".join(matched_paras[:6])
+                return res[:max_chars]
+            else:
+                res = f"O termo '{search_within}' não foi encontrado diretamente nos parágrafos principais de '{page_title}'. Resumo geral do site:\n\n"
+                res += "\n".join(paragraphs[:5])
+                return res[:max_chars]
+
+        # Conteúdo geral
+        output = [f"Título da Página: {page_title}"]
+        if headings:
+            output.append("Tópicos Principais: " + " | ".join(headings[:8]))
+        if paragraphs:
+            output.append("\nConteúdo Principal:\n" + "\n\n".join(paragraphs[:10]))
+        else:
+            body_text = soup.get_text(separator="\n", strip=True)
+            output.append(body_text[:max_chars])
+
+        return "\n".join(output)[:max_chars]
+    except Exception as e:
+        return f"Erro ao inspecionar o site {target_url}: {e}"
+
+def deep_web_research(query: str, max_sources: int = 3) -> str:
+    """
+    Realiza uma pesquisa aprofundada na web:
+    Localiza os links mais relevantes, visita e extrai os textos dessas páginas para formular uma resposta rica.
+    """
+    clean_q = query.strip()
+    if not clean_q:
+        return "Nenhum termo de pesquisa profunda fornecido."
+
+    try:
+        from bs4 import BeautifulSoup
+        search_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(clean_q)}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        resp = requests.post("https://html.duckduckgo.com/html/", data={"q": clean_q}, headers=headers, timeout=6)
+        if resp.status_code != 200:
+            return search_internet_info(clean_q)
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        results = soup.find_all("a", class_="result__url")
+        urls = []
+        for r in results:
+            href = r.get("href", "")
+            if href.startswith("//"):
+                href = "https:" + href
+            if href.startswith("http"):
+                urls.append(href)
+            if len(urls) >= max_sources:
+                break
+
+        if not urls:
+            return search_internet_info(clean_q)
+
+        compiled_info = [f"Pesquisa aprofundada sobre '{clean_q}':"]
+        for u in urls[:max_sources]:
+            summary = inspect_website(u, search_within=clean_q, max_chars=1200)
+            compiled_info.append(f"\n--- Fonte: {u} ---\n{summary}")
+
+        return "\n".join(compiled_info)[:5000]
+    except Exception as e:
+        return search_internet_info(clean_q)
+

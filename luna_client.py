@@ -31,6 +31,13 @@ from tools.screen_tools import capture_screen_pil
 from core.task_manager import task_manager
 from tools.agy_tools import delegate_to_antigravity
 from audio.stt import transcribe_audio_pcm
+from ui.terminal_ui import (
+    render_luna_banner, render_diff_log, render_activity_box,
+    render_proposal_report, PURPLE_BRIGHT, PURPLE_MAIN, RESET, BOLD
+)
+from tools.self_coding import (
+    execute_approved_code_change, rollback_latest_backup, restart_system, list_backups
+)
 
 load_dotenv(override=True)
 
@@ -408,34 +415,50 @@ def is_confirmation_intent(text: str) -> bool:
 
 def handle_confirmation_turn(user_text: str) -> bool:
     """
-    Se houver uma permissão pendente no TaskManager e o usuário expressar confirmação
-    ('Sim', 'pode fazer', 'confirmo', 'autorizo', 'opção 4', etc.), executa a ação no antigravidade
-    com Opção 4 (auto_approve=True) e sintetiza a resposta da LUNA.
+    Se houver uma proposta de alteração de código ou permissão pendente no TaskManager
+    e o usuário expressar confirmação ('Sim', 'pode fazer', 'confirmo', 'autorizo', 'opção 4', etc.),
+    executa a ação e sintetiza a resposta da LUNA.
     Retorna True se processou confirmação, False caso contrário.
     """
-    if not task_manager.has_pending_permission() or not is_confirmation_intent(user_text):
+    if not is_confirmation_intent(user_text):
         return False
 
-    pending = task_manager.get_pending_permission()
-    action = pending.get("action", "ação solicitada")
-    task_desc = pending.get("task_description", "")
-    target_path = pending.get("target_path")
+    # 1. Proposta de alteração de código pendente (Luna ou Veronica)
+    if task_manager.has_pending_code_change():
+        prop = task_manager.get_pending_code_change()
+        target = prop.get("target_agent", "Luna").capitalize()
+        print(f"\n🧠 [Raciocínio LUNA]: Alteração de código autorizada para [{target}]! Aplicando via Antigravidade...")
+        hud.set_state("thinking", f"Aplicando código [{target}]...")
+        change_res = execute_approved_code_change(prop)
+        task_manager.clear_pending_code_change()
+        spoken = change_res.get("spoken_message", "Alterações aplicadas com sucesso pelo antigravidade!")
+        process_user_turn(f"O Gabriel confirmou com '{user_text}'. Você executou as alterações no código da {target} com sucesso pelo antigravidade e gerou backup prévio. Diga ao Gabriel de forma alegre e carinhosa: '{spoken}'")
+        return True
 
-    print(f"\n🧠 [Raciocínio LUNA]: Opção 4 selecionada: autorizando e executando '{action}' no antigravidade...")
-    hud.set_state("thinking", "Opção 4: Autorizando execução...")
+    # 2. Permissão de ferramenta pendente (Opção 4)
+    if task_manager.has_pending_permission():
+        pending = task_manager.get_pending_permission()
+        action = pending.get("action", "ação solicitada")
+        task_desc = pending.get("task_description", "")
+        target_path = pending.get("target_path")
 
-    # Executa a ação no antigravidade com permissão total aprovada (Opção 4)
-    res = delegate_to_antigravity(task_desc, target_path=target_path, auto_approve=True)
-    task_manager.complete_active_task(result_summary=res[:400])
-    task_manager.clear_pending_permission()
+        print(f"\n🧠 [Raciocínio LUNA]: Opção 4 selecionada: autorizando e executando '{action}' no antigravidade...")
+        hud.set_state("thinking", "Opção 4: Autorizando execução...")
 
-    approval_prompt = (
-        f"O Gabriel disse '{user_text}', confirmando a execução da ação (Opção 4: autorização total aceita). "
-        f"O antigravidade executou '{action}' com sucesso. Resumo do resultado: {res[:300]}. "
-        f"Responda ao Gabriel de forma alegre, fofa e carinhosa confirmando que a ação foi autorizada e concluída com sucesso, explicando o resultado em 1 ou 2 frases curtas."
-    )
-    process_user_turn(approval_prompt)
-    return True
+        # Executa a ação no antigravidade com permissão total aprovada (Opção 4)
+        res = delegate_to_antigravity(task_desc, target_path=target_path, auto_approve=True)
+        task_manager.complete_active_task(result_summary=res[:400])
+        task_manager.clear_pending_permission()
+
+        approval_prompt = (
+            f"O Gabriel disse '{user_text}', confirmando a execução da ação (Opção 4: autorização total aceita). "
+            f"O antigravidade executou '{action}' com sucesso. Resumo do resultado: {res[:300]}. "
+            f"Responda ao Gabriel de forma alegre, fofa e carinhosa confirmando que a ação foi autorizada e concluída com sucesso, explicando o resultado em 1 ou 2 frases curtas."
+        )
+        process_user_turn(approval_prompt)
+        return True
+
+    return False
 
 def run_continuous_conversation(initial_text: str = None):
     """
@@ -726,18 +749,7 @@ def handle_manual_f8():
 def main():
     global wake_detector, emergency_reset_active
 
-    print("=" * 68)
-    print("   🌙 LUNA AI (Interface de Voz Multimodal Live + Núcleo Central)")
-    print("=" * 68)
-    print("-> Canal de Voz Primário: Gemini Multimodal Live (Streaming 24kHz • Voz Aoede)")
-    print(f"-> Núcleo Central Conectado: {CORE_WS_URL}")
-    print("-> Interface Visual: HUD Dinâmico Flutuante (Standby / Ativo)")
-    print("-> Ativação por Voz: Diga 'Luna ...' a qualquer momento!")
-    print("-> Atalho Manual: Pressione [F8] para falar diretamente.")
-    print("-> Modo Digitação: Digite comandos e perguntas no terminal abaixo.")
-    print("-> Tecla de Pânico / Abortar: Pressione [ESC] ou [F9] a qualquer momento.")
-    print("-> Conversação Contínua: Responda diretamente após a fala da Luna.")
-    print("-> Pressione Ctrl+C para sair.\n")
+    render_luna_banner()
 
     hud.start()
     hud.set_state("idle")
@@ -755,19 +767,41 @@ def main():
     except Exception as e:
         print(f"[-] Aviso ao registrar atalhos de teclado: {e}")
 
-    print("💬 [Terminal Pronto]: Digite uma mensagem abaixo ou use a voz (Diga 'Luna' / [F8]):")
+    last_interrupt_time = 0.0
 
     while True:
         try:
             emergency_reset_active = False
-            user_text = input("\n💬 Gabriel > ")
+            user_text = input(f"\n{PURPLE_MAIN}💬 Gabriel > {RESET}")
             if not user_text or not user_text.strip():
                 continue
 
             clean_text = user_text.strip()
-            if clean_text.lower() in ["sair", "exit", "quit"]:
-                print("\n[!] Encerrando Luna Client...")
+
+            # Comandos rápidos de terminal (Slash Commands)
+            if clean_text.lower() in ["/sair", "/exit", "/quit", "sair", "exit", "quit"]:
+                print(f"\n{PURPLE_MAIN}[!] Encerrando Luna Client... Até breve, Gabriel!{RESET}")
                 break
+            elif clean_text.lower() in ["/reiniciar", "/restart"]:
+                print(f"\n{PURPLE_BRIGHT}🔄 [Hot Reload]: Reiniciando a Luna e o Núcleo Antigravidade...{RESET}")
+                restart_system()
+                break
+            elif clean_text.lower() in ["/rollback", "/desfazer"]:
+                print(f"\n{PURPLE_BRIGHT}⏪ [Rollback]: Revertendo para o último backup...{RESET}")
+                rb = rollback_latest_backup()
+                print(f"{PURPLE_MAIN}[✓] {rb.get('message')}{RESET}")
+                process_user_turn(f"O Gabriel solicitou rollback. {rb.get('message')}. Confirme com carinho que o código foi restaurado.")
+                continue
+            elif clean_text.lower() in ["/backups"]:
+                b_list = list_backups()
+                print(f"\n{PURPLE_BRIGHT}📁 Backups disponíveis ({len(b_list)}):{RESET}")
+                for b in b_list[:6]:
+                    print(f"  • {b.get('folder')} -> {b.get('target_agent')} ({len(b.get('backed_files', []))} arquivos)")
+                continue
+            elif clean_text.lower() in ["/limpar", "/clear"]:
+                os.system("cls" if os.name == "nt" else "clear")
+                render_luna_banner()
+                continue
 
             emergency_reset_active = False
             stop_speaking()
@@ -793,8 +827,17 @@ def main():
             if wake_detector:
                 wake_detector.resume()
 
-        except (KeyboardInterrupt, EOFError):
-            print("\n[!] Encerrando Luna Client...")
+        except KeyboardInterrupt:
+            now = time.time()
+            if now - last_interrupt_time < 2.0:
+                print(f"\n\n{PURPLE_MAIN}[!] Encerrando Luna Client... Até logo, Gabriel!{RESET}")
+                break
+            else:
+                last_interrupt_time = now
+                print(f"\n{PURPLE_BRIGHT}⚡ [Dica]: Linha cancelada. Digite {BOLD}/sair{RESET}{PURPLE_BRIGHT} ou pressione Ctrl+C novamente em 2s para encerrar.{RESET}")
+                continue
+        except EOFError:
+            print(f"\n{PURPLE_MAIN}[!] Encerrando Luna Client...{RESET}")
             break
         except Exception as e:
             print(f"[Erro no processamento de texto]: {e}")

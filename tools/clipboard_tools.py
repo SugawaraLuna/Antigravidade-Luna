@@ -72,14 +72,18 @@ def handle_code_delivery(raw_output: str, task_hint: str = "script") -> str:
     main_lang, main_code = blocks[0]
     copied = copy_to_clipboard(main_code)
 
-    print("\n" + "=" * 68)
-    print(f"📋 [CÓDIGO GERADO PELA LUNA / ANTIGRAVIDADE - LINGUAGEM: {main_lang.upper()}]:")
-    print("=" * 68)
-    print(main_code)
-    print("=" * 68)
-    if copied:
-        print("[✓] Código copiado automaticamente para a sua Área de Transferência (Ctrl+V)!")
-    print("=" * 68 + "\n")
+    try:
+        from ui.terminal_ui import render_code_card
+        render_code_card(main_lang, main_code, copied=copied, saved_path=None)
+    except Exception:
+        print("\n" + "=" * 68)
+        print(f"📋 [CÓDIGO GERADO PELA LUNA / ANTIGRAVIDADE - LINGUAGEM: {main_lang.upper()}]:")
+        print("=" * 68)
+        print(main_code)
+        print("=" * 68)
+        if copied:
+            print("[✓] Código copiado automaticamente para a sua Área de Transferência (Ctrl+V)!")
+        print("=" * 68 + "\n")
 
     saved_path = None
     try:
@@ -90,10 +94,17 @@ def handle_code_delivery(raw_output: str, task_hint: str = "script") -> str:
                 "google-apps-script": ".gs", "appsscript": ".gs",
                 "python": ".py", "py": ".py",
                 "powershell": ".ps1", "ps1": ".ps1",
-                "html": ".html", "css": ".css", "sql": ".sql"
+                "html": ".html", "css": ".css", "sql": ".sql", "bash": ".sh", "sh": ".sh"
             }
-            ext = ext_map.get(main_lang, ".txt")
-            safe_hint = re.sub(r'[^a-zA-Z0-9_]', '_', task_hint[:20])
+            # Se o usuário explicitamente pediu a linguagem na tarefa, usamos a extensão específica; caso contrário, .txt por padrão
+            hint_lower = (task_hint or "").lower()
+            explicit_lang_requested = any(l in hint_lower for l in ["python", "javascript", "powershell", "appsscript", "html", "css", "sql", "bash"])
+            if explicit_lang_requested:
+                ext = ext_map.get(main_lang, ".txt")
+            else:
+                ext = ".txt"
+
+            safe_hint = re.sub(r'[^a-zA-Z0-9_]', '_', task_hint[:20]) if task_hint else "script"
             filename = f"luna_{safe_hint}{ext}"
             file_full = os.path.join(downloads_dir, filename)
             with open(file_full, "w", encoding="utf-8") as f:
@@ -105,5 +116,6 @@ def handle_code_delivery(raw_output: str, task_hint: str = "script") -> str:
 
     delivery_msg = "Já printei o código completo no terminal e copiei para sua Área de Transferência (Ctrl+V)!"
     if saved_path:
-        delivery_msg += f" Também salvei uma cópia na sua pasta Downloads."
+        delivery_msg += f" Também salvei uma cópia em formato '{ext}' na sua pasta Downloads."
     return delivery_msg
+
