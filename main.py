@@ -6,6 +6,7 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import time
+import threading
 import argparse
 import subprocess
 import requests
@@ -17,7 +18,7 @@ HEALTH_URL = f"http://{CORE_HOST}:{CORE_PORT}/health"
 def is_core_online() -> bool:
     try:
         r = requests.get(HEALTH_URL, timeout=1.5)
-        return r.status_code == 200 and r.json().get("core") == "antigravidade"
+        return r.status_code == 200 and r.json().get("status") == "online"
     except Exception:
         return False
 
@@ -69,15 +70,34 @@ def main():
     print("=" * 68)
 
     core_proc = None
+    stop_watchdog = threading.Event()
+
+    def watchdog_loop():
+        nonlocal core_proc
+        while not stop_watchdog.is_set():
+            time.sleep(3.0)
+            if not is_core_online() and not stop_watchdog.is_set():
+                print("\n[⚠️ WATCHDOG]: Núcleo Antigravidade inacessível. Reiniciando processo...")
+                if core_proc:
+                    try:
+                        core_proc.terminate()
+                    except Exception:
+                        pass
+                core_proc = start_core_background()
+
     if not is_core_online():
         core_proc = start_core_background()
     else:
         print(f"[✓] Núcleo Antigravidade já detectado ativo na porta {CORE_PORT}.")
 
+    watchdog_thread = threading.Thread(target=watchdog_loop, daemon=True)
+    watchdog_thread.start()
+
     try:
         from luna_client import main as run_client
         run_client()
     finally:
+        stop_watchdog.set()
         if core_proc:
             try:
                 core_proc.terminate()

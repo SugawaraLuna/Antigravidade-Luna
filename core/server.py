@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from aiohttp import web
 from dotenv import load_dotenv
 
@@ -22,12 +23,7 @@ engine = AntigravityExecutionEngine()
 
 async def handle_health(request: web.Request) -> web.Response:
     """Endpoint para checagem de saúde e descoberta do núcleo."""
-    return web.json_response({
-        "status": "online",
-        "core": "antigravidade",
-        "version": "2.0",
-        "timestamp": asyncio.get_event_loop().time()
-    })
+    return web.json_response({"status": "online"}, status=200)
 
 async def handle_rest_query(request: web.Request) -> web.Response:
     """Endpoint REST para envio de comandos pontuais."""
@@ -162,8 +158,18 @@ def main():
     print("-> Motor: Gemini Multimodal + Raciocínio Estruturado PowerShell")
     print("-> Pressione Ctrl+C para encerrar o núcleo.\n")
 
-    app = create_app()
-    web.run_app(app, host=HOST, port=PORT, print=None)
+    while True:
+        try:
+            app = create_app()
+            web.run_app(app, host=HOST, port=PORT, print=None)
+            break
+        except KeyboardInterrupt:
+            print("\n[!] Núcleo Antigravidade encerrado pelo usuário.")
+            break
+        except Exception as e:
+            print(f"\n[⚠️ ALERTA DE CRASH]: Interrupção inesperada no núcleo: {e}")
+            print("[🔄 AUTO-REINICIALIZAÇÃO]: Reiniciando núcleo Antigravidade em 2 segundos...")
+            time.sleep(2)
 
 if __name__ == "__main__":
     main()
