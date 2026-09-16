@@ -29,6 +29,7 @@ from audio.live_engine import LunaLiveWebSocketEngine
 from core.engine import build_system_prompt, TOOLS_SCHEMA, AntigravityExecutionEngine
 from tools.screen_tools import capture_screen_pil
 from core.task_manager import task_manager
+from tools.agy_tools import delegate_to_antigravity
 
 load_dotenv(override=True)
 
@@ -365,6 +366,63 @@ def is_cancel_task_intent(text: str) -> bool:
     ]
     return any(w in clean for w in cancel_words)
 
+def is_confirmation_intent(text: str) -> bool:
+    """Detecta intenção afirmativa/autorização do Gabriel (Opção 4: aceita tudo relacionado)."""
+    if not text:
+        return False
+    clean = text.lower().strip(" .,!?")
+    confirmations = {
+        "sim", "sim pode", "pode", "pode fazer", "pode sim", "pode executar",
+        "confirmo", "confirmar", "confirmado", "autorizo", "autorizado", "autorizar",
+        "claro", "com certeza", "aceito", "aceita", "manda ver", "manda bala",
+        "vai fundo", "prosseguir", "continuar", "continua", "pode continuar",
+        "opção 4", "opcao 4", "opcao quatro", "opção quatro", "4", "quatro",
+        "aceita tudo", "aceitar tudo", "aceita tudo relacionado", "aceito tudo"
+    }
+    if clean in confirmations:
+        return True
+    confirm_patterns = [
+        r"^(sim|pode|claro|confirmo|autorizo)",
+        r"^pode\s+(fazer|executar|continuar|ir|mandar)",
+        r"^(opção|opcao)\s*(4|quatro)",
+        r"^aceit[ao]\s+tudo"
+    ]
+    for pat in confirm_patterns:
+        if re.search(pat, clean):
+            return True
+    return False
+
+def handle_confirmation_turn(user_text: str) -> bool:
+    """
+    Se houver uma permissão pendente no TaskManager e o usuário expressar confirmação
+    ('Sim', 'pode fazer', 'confirmo', 'autorizo', 'opção 4', etc.), executa a ação no antigravidade
+    com Opção 4 (auto_approve=True) e sintetiza a resposta da LUNA.
+    Retorna True se processou confirmação, False caso contrário.
+    """
+    if not task_manager.has_pending_permission() or not is_confirmation_intent(user_text):
+        return False
+
+    pending = task_manager.get_pending_permission()
+    action = pending.get("action", "ação solicitada")
+    task_desc = pending.get("task_description", "")
+    target_path = pending.get("target_path")
+
+    print(f"\n🧠 [Raciocínio LUNA]: Opção 4 selecionada: autorizando e executando '{action}' no antigravidade...")
+    hud.set_state("thinking", "Opção 4: Autorizando execução...")
+
+    # Executa a ação no antigravidade com permissão total aprovada (Opção 4)
+    res = delegate_to_antigravity(task_desc, target_path=target_path, auto_approve=True)
+    task_manager.complete_active_task(result_summary=res[:400])
+    task_manager.clear_pending_permission()
+
+    approval_prompt = (
+        f"O Gabriel disse '{user_text}', confirmando a execução da ação (Opção 4: autorização total aceita). "
+        f"O antigravidade executou '{action}' com sucesso. Resumo do resultado: {res[:300]}. "
+        f"Responda ao Gabriel de forma alegre, fofa e carinhosa confirmando que a ação foi autorizada e concluída com sucesso, explicando o resultado em 1 ou 2 frases curtas."
+    )
+    process_user_turn(approval_prompt)
+    return True
+
 def run_continuous_conversation(initial_text: str = None):
     """
     Modo conversacional contínuo:
@@ -442,7 +500,11 @@ def run_continuous_conversation(initial_text: str = None):
                 hud.set_state("idle")
                 break
 
-            # 2. Encerramento natural / Agradecimento / Término de assunto
+            # 2. Confirmação de Permissão Pendente (Opção 4: Aceita tudo relacionado)
+            if handle_confirmation_turn(text):
+                continue
+
+            # 3. Encerramento natural / Agradecimento / Término de assunto
             if is_closure_intent(text):
                 closing_prompt = f"O Gabriel disse '{text}'. Trata-se de um encerramento natural de assunto ou agradecimento. Responda de forma fofa, espontânea e amigável em 1 frase curta concluindo a conversa (ex: agradecendo ou dizendo que está sempre por aqui se ele precisar)."
                 process_user_turn(closing_prompt)
@@ -471,6 +533,12 @@ def handle_wake_word(command_remainder: str = None):
         if is_cancel_task_intent(command_remainder):
             task_manager.cancel_active_task()
             process_user_turn("O Gabriel pediu para cancelar a tarefa ativa ou deixar pra lá. Confirme com carinho em 1 frase curta.")
+            unduck_audio()
+            hud.set_state("idle")
+            if wake_detector:
+                wake_detector.resume()
+            return
+        if handle_confirmation_turn(command_remainder):
             unduck_audio()
             hud.set_state("idle")
             if wake_detector:
@@ -511,6 +579,12 @@ def handle_wake_word(command_remainder: str = None):
                 if is_cancel_task_intent(text):
                     task_manager.cancel_active_task()
                     process_user_turn("O Gabriel pediu para cancelar a tarefa ativa ou deixar pra lá. Confirme com carinho em 1 frase curta.")
+                    unduck_audio()
+                    hud.set_state("idle")
+                    if wake_detector:
+                        wake_detector.resume()
+                    return
+                if handle_confirmation_turn(text):
                     unduck_audio()
                     hud.set_state("idle")
                     if wake_detector:
@@ -601,6 +675,13 @@ def handle_manual_f8():
                     wake_detector.resume()
                 return
 
+            if handle_confirmation_turn(text):
+                unduck_audio()
+                hud.set_state("idle")
+                if wake_detector:
+                    wake_detector.resume()
+                return
+
             if is_closure_intent(text):
                 closing_prompt = f"O Gabriel disse: '{text}'. Responda de forma fofa e amigável em 1 frase curta."
                 process_user_turn(closing_prompt)
@@ -677,6 +758,8 @@ def main():
             if is_cancel_task_intent(clean_text):
                 task_manager.cancel_active_task()
                 process_user_turn("O Gabriel pediu para cancelar a tarefa ativa ou deixar pra lá. Confirme com carinho em 1 frase curta.")
+            elif handle_confirmation_turn(clean_text):
+                pass
             elif is_closure_intent(clean_text):
                 closing_prompt = f"O Gabriel disse: '{clean_text}'. Trata-se de um encerramento natural de assunto ou agradecimento. Responda de forma fofa e amigável em 1 frase curta."
                 process_user_turn(closing_prompt)

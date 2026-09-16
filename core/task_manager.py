@@ -12,6 +12,7 @@ class TaskManager:
         if cls._instance is None:
             cls._instance = super(TaskManager, cls).__new__(cls)
             cls._instance.active_task = None
+            cls._instance.pending_permission = None
         return cls._instance
 
     def get_active_task(self) -> Optional[Dict[str, Any]]:
@@ -56,6 +57,7 @@ class TaskManager:
         return task
 
     def cancel_active_task(self, reason: str = "Cancelado pelo usuário") -> Optional[Dict[str, Any]]:
+        self.clear_pending_permission()
         if not self.active_task:
             return None
         self.active_task["status"] = "cancelled"
@@ -67,10 +69,46 @@ class TaskManager:
 
     def clear_active_task(self):
         self.active_task = None
+        self.clear_pending_permission()
+
+    def set_pending_permission(self, action: str, task_description: str, target_path: str = None) -> Dict[str, Any]:
+        """Registra uma ação no antigravidade que está aguardando confirmação do Gabriel."""
+        self.pending_permission = {
+            "action": action.strip(),
+            "task_description": task_description.strip(),
+            "target_path": target_path,
+            "requested_at": time.time(),
+            "status": "waiting_approval"
+        }
+        return self.pending_permission
+
+    def get_pending_permission(self) -> Optional[Dict[str, Any]]:
+        return self.pending_permission
+
+    def has_pending_permission(self) -> bool:
+        return self.pending_permission is not None and self.pending_permission.get("status") == "waiting_approval"
+
+    def clear_pending_permission(self):
+        self.pending_permission = None
 
     def get_task_context_string(self) -> str:
+        ctx_parts = []
+        
+        if self.has_pending_permission():
+            perm = self.pending_permission
+            ctx_parts.append(
+                f"\n--- PEDIDO DE AUTORIZAÇÃO PENDENTE (OPÇÃO 4) ---\n"
+                f"Ação que necessita de autorização: {perm.get('action')}\n"
+                f"Tarefa no antigravidade: {perm.get('task_description')}\n"
+                f"INSTRUÇÃO OBRIGATÓRIA: Se você acabou de delegar e precisa de confirmação, pergunte com carinho: "
+                f"'Eu só preciso da sua confirmação para executar {perm.get('action')}, por favor.'\n"
+                f"Quando o Gabriel responder 'Sim', 'pode fazer', 'confirmo', 'autorizo' ou 'opção 4', isso significa a OPÇÃO 4 (aceita tudo relacionado). "
+                f"Chame 'delegate_to_antigravity' com auto_approve=True e confirme a conclusão com entusiasmo!\n"
+                f"--------------------------------------------------\n"
+            )
+
         if not self.active_task:
-            return ""
+            return "".join(ctx_parts)
         
         status = self.active_task.get("status", "in_progress")
         title = self.active_task.get("title", "")
@@ -79,7 +117,7 @@ class TaskManager:
         last_action = self.active_task.get("last_action", "")
 
         if status == "in_progress":
-            ctx = (
+            ctx_parts.append(
                 f"\n--- TAREFA ATIVA EM ANDAMENTO (FOCO ABSOLUTO) ---\n"
                 f"Objetivo: {title}\n"
                 f"Detalhes: {details}\n"
@@ -88,15 +126,14 @@ class TaskManager:
                 f"DIRETRIZ DE FOCO: Você DEVE manter o foco absoluto nesta tarefa até concluí-la ou o Gabriel pedir expressamente para parar/deixar para lá. Não se esqueça dessa tarefa nos próximos turnos!\n"
                 f"--------------------------------------------------\n"
             )
-            return ctx
         elif status == "completed" and result:
-            ctx = (
+            ctx_parts.append(
                 f"\n--- TAREFA RECÉM-CONCLUÍDA ---\n"
                 f"Tarefa: {title}\n"
                 f"Resultado Obtido: {result}\n"
                 f"-----------------------------\n"
             )
-            return ctx
-        return ""
+        return "".join(ctx_parts)
 
 task_manager = TaskManager()
+

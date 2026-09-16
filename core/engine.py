@@ -216,6 +216,7 @@ TOOLS_SCHEMA = [{
                 "properties": {
                     "task_description": {"type": "STRING", "description": "Descrição detalhada do que o antigravidade deve analisar, projetar, programar ou resolver"},
                     "target_path": {"type": "STRING", "description": "Caminho opcional do diretório alvo"},
+                    "auto_approve": {"type": "BOOLEAN", "description": "Se True (Opção 4), autoriza todas as permissões relacionadas. Use True quando o Gabriel já tiver confirmado com 'Sim', 'pode fazer', 'confirmo', 'autorizo' ou 'opção 4'."},
                     "action_label": {"type": "STRING", "description": "Título dinâmico e natural em português explicando a consulta ao antigravidade (ex: 'Consultando arquitetura Railway no antigravidade', 'Projetando integração de celular no antigravidade')."}
                 },
                 "required": ["task_description", "action_label"]
@@ -283,8 +284,9 @@ def build_system_prompt() -> str:
         "5. HARDWARE / STATUS: Se perguntar sobre temperatura, GPU RTX 5060, CPU ou RAM, chame 'get_hardware_stats'.\n"
         "6. VISÃO DA TELA: Se pedir para ver ou interpretar o que tem na tela, chame 'take_screenshot'.\n"
         "7. DELEGAR AO ANTIGRAVIDADE: Se o Gabriel perguntar sobre arquiteturas (como conectar celular ao Railway), criar códigos, automações ou consultar o antigravidade, chame 'delegate_to_antigravity' com a descrição completa da tarefa!\n"
-        f"8. {task_str}\n"
-        f"9. {mem_str}"
+        "8. CONFIRMAÇÃO DE PERMISSÃO & OPÇÃO 4: Se o antigravidade informar que precisa de permissão (retorno 'PERMISSAO_NECESSARIA...'), você DEVE retornar ao Gabriel com carinho dizendo: 'Eu só preciso da sua confirmação para executar [X ação], por favor.' e aguardar a resposta dele. Quando o Gabriel responder 'Sim', 'pode fazer', 'confirmo', 'autorizo', 'opção 4' ou similares, isso significa a Opção 4 (aceita tudo relacionado). Chame 'delegate_to_antigravity' com 'auto_approve=True' e confirme a execução com entusiasmo!\n"
+        f"9. {task_str}\n"
+        f"10. {mem_str}"
     )
 
 class AntigravityExecutionEngine:
@@ -363,10 +365,14 @@ class AntigravityExecutionEngine:
             res = run_powershell(cmd)
         elif name == "delegate_to_antigravity":
             task_desc = args.get("task_description", "")
+            auto_approve = args.get("auto_approve", False)
             task_title = action_label or task_desc[:60]
             task_manager.start_active_task(title=task_title, details=task_desc, action_label=action_label or "Consultando antigravidade...")
-            res = delegate_to_antigravity(task_desc)
-            task_manager.complete_active_task(result_summary=res[:400])
+            res = delegate_to_antigravity(task_desc, target_path=args.get("target_path"), auto_approve=auto_approve)
+            if "PERMISSAO_NECESSARIA:" in res:
+                task_manager.update_task_progress(action_label="Aguardando confirmação do Gabriel", result=res)
+            else:
+                task_manager.complete_active_task(result_summary=res[:400])
         elif name == "maximize_or_focus_window":
             res = maximize_app_window(args.get("app_name", ""))
         elif name == "get_hardware_stats":
