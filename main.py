@@ -68,7 +68,7 @@ def main():
         return
 
     # Modo padrão: Orquestração Unificada
-    print("=" * 68)
+    print("\n" + "=" * 68)
     print("   🌙 SISTEMA LUNA")
     print("=" * 68)
 
