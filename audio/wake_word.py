@@ -58,6 +58,10 @@ class WakeWordDetector:
     def resume(self):
         self.is_listening_wake = True
 
+    def stop(self):
+        self.is_active = False
+        self.is_listening_wake = False
+
     def _listen_loop(self):
         pre_roll = deque(maxlen=10) # 300ms de pre-roll
         

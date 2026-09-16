@@ -285,3 +285,8 @@ class LunaLiveWebSocketEngine:
                 self.audio_stream.close()
         except Exception:
             pass
+        try:
+            if self.pyaudio:
+                self.pyaudio.terminate()
+        except Exception:
+            pass

@@ -224,5 +224,14 @@ class LunaHUD:
                 self._draw_orb(standby=True)
                 self.container.config(highlightbackground="#BE185D")
 
+    def close(self):
+        """Encerra graciosamente a janela do HUD sem travar o Tkinter."""
+        self.running = False
+        if self.root:
+            try:
+                self.root.after(0, self.root.destroy)
+            except Exception:
+                pass
+
 JarvisHUD = LunaHUD
 

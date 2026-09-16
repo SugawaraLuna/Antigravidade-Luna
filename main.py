@@ -106,6 +106,8 @@ def main():
                 core_proc.terminate()
             except Exception:
                 pass
+        time.sleep(0.1)
+        os._exit(0)
 
 if __name__ == "__main__":
     main()

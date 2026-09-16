@@ -187,6 +187,34 @@ def stop_speaking():
         except Exception:
             pass
 
+def cleanup():
+    """Encerra graciosamente todos os recursos de áudio, ganchos do Windows e interface gráfica."""
+    global wake_detector, hud, live_engine
+    try:
+        stop_speaking()
+    except Exception:
+        pass
+    try:
+        import keyboard
+        keyboard.unhook_all()
+    except Exception:
+        pass
+    try:
+        if wake_detector:
+            wake_detector.stop()
+    except Exception:
+        pass
+    try:
+        if live_engine:
+            live_engine.close()
+    except Exception:
+        pass
+    try:
+        if hud:
+            hud.close()
+    except Exception:
+        pass
+
 def trigger_emergency_reset():
     """
     Reset Imediato e de Emergência:
@@ -857,5 +885,11 @@ def main():
             if wake_detector:
                 wake_detector.resume()
 
+    cleanup()
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        cleanup()
+        os._exit(0)
