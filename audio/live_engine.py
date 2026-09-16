@@ -1,5 +1,9 @@
 import os
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import time
 import asyncio
 import threading
@@ -166,6 +170,16 @@ class LunaLiveWebSocketEngine:
                         if sc.model_turn is not None:
                             for part in sc.model_turn.parts:
                                 if part.inline_data and not self.is_interrupted:
+                                    try:
+                                        import keyboard
+                                        if keyboard.is_pressed("esc") or keyboard.is_pressed("f9") or keyboard.is_pressed("f8"):
+                                            print("\n[🛑 Barge-in]: Interrompido pelo usuário!")
+                                            self.is_interrupted = True
+                                            self.stop_audio()
+                                            break
+                                    except Exception:
+                                        pass
+
                                     if first_chunk:
                                         latency = time.time() - t_start
                                         print(f"[⚡ Streaming WebSocket]: Primeiro áudio em {latency:.2f}s!")

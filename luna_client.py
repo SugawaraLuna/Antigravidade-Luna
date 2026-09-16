@@ -24,6 +24,9 @@ from ui.hud import LunaHUD
 from audio.vad_recorder import record_with_smart_vad, set_vad_abort
 from audio.wake_word import WakeWordDetector
 from tools.system_control import duck_audio, unduck_audio
+from audio.live_engine import LunaLiveWebSocketEngine
+from core.engine import build_system_prompt, TOOLS_SCHEMA, AntigravityExecutionEngine
+from tools.screen_tools import capture_screen_pil
 
 load_dotenv(override=True)
 
@@ -141,6 +144,16 @@ class AntigravityClient:
             )
 
 core_client = AntigravityClient(CORE_WS_URL)
+core_engine = AntigravityExecutionEngine()
+
+# Instância do Gemini Multimodal Live (Voz Neural Nativa Aoede)
+live_engine = None
+gemini_key = os.getenv("GEMINI_API_KEY")
+if gemini_key:
+    try:
+        live_engine = LunaLiveWebSocketEngine(api_key=gemini_key, voice_name="Aoede")
+    except Exception as e:
+        print(f"[-] Aviso ao inicializar Live Engine: {e}")
 
 def _get_winmm():
     if sys.platform == "win32" and hasattr(ctypes, "windll"):
@@ -153,6 +166,8 @@ def _get_winmm():
 def stop_speaking():
     global is_speaking_active
     is_speaking_active = False
+    if live_engine:
+        live_engine.interrupt()
     winmm = _get_winmm()
     if winmm:
         try:
@@ -251,11 +266,35 @@ def play_beep_cancel():
             pass
 
 def process_user_turn(user_text: str):
-    """Envia requisição da fala ao Núcleo Antigravidade e sintetiza a fala retornada."""
+    """Executa o turno com voz fluida Multimodal Live (Aoede) ou fallback no Antigravidade."""
     global emergency_reset_active
     if not user_text or emergency_reset_active:
         return
 
+    # 1. Canal Primário: Gemini Multimodal Live (Voz Neural Aoede 24kHz em tempo real)
+    if live_engine and not emergency_reset_active:
+        hud.set_state("thinking", "LUNA formulando...")
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            success = loop.run_until_complete(
+                live_engine.run_turn(
+                    system_instruction=build_system_prompt(),
+                    tools_schema=TOOLS_SCHEMA,
+                    user_text=user_text,
+                    execute_tool_fn=lambda name, args: core_engine.execute_tool(name, args)[0],
+                    get_screenshot_pil_fn=capture_screen_pil,
+                    hud=hud
+                )
+            )
+            loop.close()
+            if success and not emergency_reset_active:
+                hud.set_state("idle")
+                return
+        except Exception as live_err:
+            print(f"[-] Falha no Live Audio: {live_err}. Alternando para canal secundário...")
+
+    # 2. Canal Secundário / Fallback: Núcleo Antigravidade + TTS
     hud.set_state("thinking", f"'{user_text[:30]}...'")
     print(f"[*] Enviando para o Núcleo Antigravidade: \"{user_text}\"")
 
@@ -401,8 +440,9 @@ def main():
     global wake_detector, emergency_reset_active
 
     print("=" * 68)
-    print("   🌙 LUNA AI (Interface Leve Desacoplada • Thin Client)")
+    print("   🌙 LUNA AI (Interface de Voz Multimodal Live + Núcleo Central)")
     print("=" * 68)
+    print("-> Canal de Voz Primário: Gemini Multimodal Live (Streaming 24kHz • Voz Aoede)")
     print(f"-> Núcleo Central Conectado: {CORE_WS_URL}")
     print("-> Interface Visual: HUD Dinâmico Flutuante (Standby / Ativo)")
     print("-> Ativação por Voz: Diga 'Luna ...' a qualquer momento!")
